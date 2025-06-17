@@ -1,62 +1,24 @@
-# -----------------------------------------------------
-# Rust Specific - src-tauri folder
-# -----------------------------------------------------
-/src-tauri/target/
-/src-tauri/Cargo.lock
-/src-tauri/build/
-
-# Ignore IDE-specific files for Rust development
-# VS Code
-.vscode/
-# IntelliJ IDEA / CLion
-.idea/
-*.iml
-
-# -----------------------------------------------------
-# Node.js / Frontend Specific
-# -----------------------------------------------------
-node_modules/
-dist/
-build/
-out/
-.parcel-cache/ # For Parcel bundler
-.next/        # For Next.js
-.nuxt/        # For Nuxt.js
-.svelte-kit/  # For SvelteKit
-coverage/
-.env
-.env.*.local
-.DS_Store # macOS specific
+# Logs
+logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-pnpm-error.log*
-# pnpm-lock.yaml # Generally you want to commit this, but if you truly don't want it:
-# pnpm-lock.yaml
+lerna-debug.log*
 
-# -----------------------------------------------------
-# Tauri Specific Build Artifacts
-# -----------------------------------------------------
-# These are generated when building the Tauri app
-src-tauri/target/
-# The following might be needed if your frontend build directory
-# is inside src-tauri, which is less common but possible.
-# If your frontend dist is outside src-tauri, these are covered by 'dist/', 'build/' etc.
-# src-tauri/dist/
-# src-tauri/build/
+node_modules
+dist
+dist-ssr
+*.local
 
-# -----------------------------------------------------
-# OS Specific
-# -----------------------------------------------------
-.DS_Store # macOS
-Thumbs.db # Windows
-.localized # macOS
-.venv # Python virtual environments (if you use Python tools)
-
-# -----------------------------------------------------
-# Other Temporary Files
-# -----------------------------------------------------
-*.log
-*.tmp
-*.bak
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
