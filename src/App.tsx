@@ -22,6 +22,7 @@ function App() {
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
+    hoveredResizeHandle,
   } = useInteraction(boxes, setBoxes, findBoxAt, addBox, (box: Box) => {
     inputRef.current?.focus();
     setCursor({ boxId: box.id, index: box.text.length });
@@ -32,7 +33,8 @@ function App() {
     boxes,
     selectedBoxId,
     newBoxPreview,
-    cursor
+    cursor,
+    hoveredResizeHandle
   );
 
   useEffect(() => {

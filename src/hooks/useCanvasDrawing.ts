@@ -49,7 +49,8 @@ export const useCanvasDrawing = (
     boxes: Box[],
     selectedBoxId: string | null,
     newBoxPreview: BoxPreview | null,
-    cursor: Cursor | null
+    cursor: Cursor | null,
+    hoveredResizeHandle: string | null
 ) => {
     const [isCursorVisible, setIsCursorVisible] = useState(true);
 
@@ -142,6 +143,25 @@ export const useCanvasDrawing = (
             roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
             ctx.stroke();
             
+            if (box.id === selectedBoxId || box.id === hoveredResizeHandle) {
+                const handleX = rectX + rectW - 8;
+                const handleY = rectY + rectH - 8;
+                const handleRadius = 6;
+                const isHovered = box.id === hoveredResizeHandle;
+
+                ctx.beginPath();
+                ctx.arc(handleX, handleY, handleRadius, 0, 2 * Math.PI);
+                
+                if (isHovered) {
+                    ctx.fillStyle = isDarkMode ? "rgba(130, 200, 255, 1)" : "rgba(0, 120, 255, 1)";
+                    ctx.fill();
+                } else {
+                    ctx.strokeStyle = isDarkMode ? "rgba(130, 200, 255, 0.8)" : "rgba(0, 120, 255, 0.8)";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+            
             if (box.id === selectedBoxId) {
                 ctx.strokeStyle = isDarkMode ? "rgba(100, 180, 255, 1)" : "rgba(0, 100, 255, 1)";
                 ctx.lineWidth = 2;
@@ -173,7 +193,7 @@ export const useCanvasDrawing = (
             );
             ctx.setLineDash([]);
         }
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible, hoveredResizeHandle]);
 
     return { draw };
 }; 

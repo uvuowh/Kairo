@@ -22,6 +22,8 @@ export const useInteraction = (
         offsetX: number;
         offsetY: number;
     } | null>(null);
+    const [resizingBox, setResizingBox] = useState<string | null>(null);
+    const [hoveredResizeHandle, setHoveredResizeHandle] = useState<string | null>(null);
     const [newBoxPreview, setNewBoxPreview] = useState<BoxPreview | null>(null);
 
     const mouseDownRef = useRef<MouseDownState | null>(null);
@@ -37,6 +39,12 @@ export const useInteraction = (
 
         const clickedBox = findBoxAt(gridX, gridY);
 
+        if (hoveredResizeHandle && clickedBox?.id === hoveredResizeHandle) {
+            setResizingBox(clickedBox.id);
+            mouseDownRef.current = { time: Date.now(), x: mouseX, y: mouseY, gridX, gridY, boxId: clickedBox.id };
+            return;
+        }
+        
         mouseDownRef.current = {
             time: Date.now(),
             x: mouseX,
@@ -52,11 +60,65 @@ export const useInteraction = (
     };
 
     const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (!mouseDownRef.current) return;
-
         const rect = e.currentTarget.getBoundingClientRect();
         const currentMouseX = e.clientX - rect.left;
         const currentMouseY = e.clientY - rect.top;
+
+        if (resizingBox) {
+            const currentGridX = Math.floor(currentMouseX / GRID_CONSTANTS.gridSize);
+            const currentGridY = Math.floor(currentMouseY / GRID_CONSTANTS.gridSize);
+            setBoxes(prevBoxes => {
+                const box = prevBoxes.find(b => b.id === resizingBox);
+                if (!box) return prevBoxes;
+
+                const newWidth = Math.max(2, currentGridX - box.x + 1);
+                const newHeight = Math.max(2, currentGridY - box.y + 1);
+                
+                const updatedBox = { ...box, width: newWidth, height: newHeight };
+
+                const hasCollision = prevBoxes.some(other => 
+                    other.id !== resizingBox && doBoxesIntersect(updatedBox, other)
+                );
+
+                if (hasCollision) {
+                    return prevBoxes;
+                }
+
+                return prevBoxes.map(b => b.id === resizingBox ? updatedBox : b);
+            });
+            return;
+        }
+        
+        if (!mouseDownRef.current) {
+            let isHoveringOnResizeHandle = false;
+            const handleHitRadius = 10; 
+            for (const box of boxes) {
+                const rectX = box.x * GRID_CONSTANTS.gridSize;
+                const rectY = box.y * GRID_CONSTANTS.gridSize;
+                const rectW = box.width * GRID_CONSTANTS.gridSize;
+                const rectH = box.height * GRID_CONSTANTS.gridSize;
+                const handleCenterX = rectX + rectW - 8;
+                const handleCenterY = rectY + rectH - 8;
+
+                const distance = Math.sqrt(
+                    Math.pow(currentMouseX - handleCenterX, 2) +
+                    Math.pow(currentMouseY - handleCenterY, 2)
+                );
+
+                if (distance < handleHitRadius) {
+                    isHoveringOnResizeHandle = true;
+                    setHoveredResizeHandle(box.id);
+                    e.currentTarget.style.cursor = 'nwse-resize';
+                    break;
+                }
+            }
+
+            if (!isHoveringOnResizeHandle) {
+                setHoveredResizeHandle(null);
+                e.currentTarget.style.cursor = 'default';
+            }
+            return;
+        }
 
         // Handle creating a new box
         if (!mouseDownRef.current.boxId && mouseDownRef.current) {
@@ -169,6 +231,11 @@ export const useInteraction = (
             setDraggingBox(null);
             mouseDownRef.current = null;
         }
+        
+        if (resizingBox) {
+            setResizingBox(null);
+            mouseDownRef.current = null;
+        }
 
         if (mouseDownRef.current) {
             const CLICK_TIME_THRESHOLD = 200;
@@ -194,6 +261,7 @@ export const useInteraction = (
         selectedBoxId,
         selectedBox,
         newBoxPreview,
+        hoveredResizeHandle,
         handleMouseDown,
         handleMouseMove,
         handleMouseUp,
