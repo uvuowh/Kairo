@@ -1,3 +1,11 @@
+body, html, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* Prevent scrollbars on the body */
+}
+
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
@@ -6,13 +14,6 @@
 
   color: #0f0f0f;
   background-color: #f6f6f6;
-  
-  /* 只保留小网格背景 */
-  background-image: 
-    linear-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.08) 1px, transparent 1px);
-  background-size: 20px 20px;
-  background-position: -1px -1px;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -21,23 +22,40 @@
   -webkit-text-size-adjust: 100%;
 }
 
-.container {
-  margin: 0;
-  padding-top: 2vh;
+.title {
+  position: fixed;
+  top: 1rem;
+  left: 2rem;
+  z-index: 10;
+  color: rgba(0, 0, 0, 0.2);
+  font-size: 2rem;
+  font-weight: bold;
+  pointer-events: none; /* Make title unclickable */
+}
+
+.app-container {
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   align-items: center;
-  text-align: center;
-  
-  /* 添加半透明背景和阴影效果 */
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  padding: 2rem;
-  margin: 2rem;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.canvas-container {
+  position: absolute;
+  border: 1px solid #ddd;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  /* The canvas itself handles grid drawing, so no background image here */
+}
+
+.hidden-textarea {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 10px;
+  height: 10px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .grid-container {
@@ -116,40 +134,13 @@ details pre {
   :root {
     color: #f6f6f6;
     background-color: #2f2f2f;
-    
-    /* 深色模式下只保留小网格背景 */
-    background-image: 
-      linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
-    background-size: 20px 20px;
-    background-position: -1px -1px;
   }
   
-  /* 深色模式下的容器样式 */
-  .container {
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  .title {
+    color: rgba(255, 255, 255, 0.2);
   }
 
-  .grid-container {
-    background-image: 
-      linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  .canvas-container {
     border-color: #555;
-  }
-
-  details summary {
-    color: #f6f6f6;
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  details summary:hover {
-    background: rgba(0, 0, 0, 0.3);
-  }
-
-  details pre {
-    background: rgba(0, 0, 0, 0.3);
-    border-color: rgba(255, 255, 255, 0.1);
   }
 }
