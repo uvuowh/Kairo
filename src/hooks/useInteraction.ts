@@ -14,7 +14,8 @@ export const useInteraction = (
     setBoxes: React.Dispatch<React.SetStateAction<Box[]>>, 
     findBoxAt: (gridX: number, gridY: number) => Box | undefined,
     addBox: (box: Omit<Box, 'id' | 'text'>) => void,
-    onSelectBox: (box: Box) => void
+    onSelectBox: (box: Box) => void,
+    onSetCursor: (box: Box, mouseX: number, mouseY: number) => void
 ) => {
     const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
     const [draggingBox, setDraggingBox] = useState<{
@@ -45,6 +46,13 @@ export const useInteraction = (
         }
         
         const clickedBox = findBoxAt(gridX, gridY);
+
+        // If clicking on the already selected box, it's a cursor reposition event.
+        if (clickedBox && clickedBox.id === selectedBoxId) {
+            onSetCursor(clickedBox, mouseX, mouseY);
+            mouseDownRef.current = null; // Prevent dragging
+            return;
+        }
 
         mouseDownRef.current = {
             time: Date.now(),

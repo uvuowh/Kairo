@@ -24,12 +24,23 @@ function App() {
     handleMouseMove,
     handleMouseUp,
     hoveredResizeHandle,
-  } = useInteraction(boxes, setBoxes, findBoxAt, addBox, (box: Box) => {
-    inputRef.current?.focus();
-    setCursor({ boxId: box.id, index: box.text.length });
-  });
+  } = useInteraction(
+    boxes,
+    setBoxes,
+    findBoxAt,
+    addBox,
+    (box: Box) => {
+        inputRef.current?.focus();
+        setCursor({ boxId: box.id, index: box.text.length });
+    },
+    (box: Box, mouseX: number, mouseY: number) => {
+        const newIndex = getCursorIndexFromClick(box, mouseX, mouseY);
+        inputRef.current?.focus();
+        setCursor({ boxId: box.id, index: newIndex });
+    }
+  );
 
-  const { draw } = useCanvasDrawing(
+  const { draw, getCursorIndexFromClick } = useCanvasDrawing(
     canvasRef,
     boxes,
     selectedBoxId,
@@ -48,6 +59,12 @@ function App() {
         inputRef.current.selectionEnd = cursor.index;
     }
   }, [selectedBox, cursor]);
+
+  useEffect(() => {
+    if (selectedBoxId === null) {
+        setCursor(null);
+    }
+  }, [selectedBoxId]);
 
   const handleTextInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isComposing.current) return;
@@ -134,7 +151,7 @@ function App() {
           ref={inputRef}
           className="hidden-textarea"
           onInput={handleTextInput}
-          onBlur={() => setCursor(null)}
+          onBlur={() => { /* Now handled by useEffect */ }}
           onCompositionStart={handleComposition}
           onCompositionEnd={handleComposition}
         />

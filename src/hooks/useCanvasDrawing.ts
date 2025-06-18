@@ -24,6 +24,44 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: n
     ctx.closePath();
 }
 
+const getCursorPixelPosition = (
+    ctx: CanvasRenderingContext2D,
+    box: Box,
+    charIndex: number
+) => {
+    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    const textBeforeCursor = box.text.substring(0, charIndex);
+    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize - PADDING * 2;
+    const lines = breakTextIntoLines(ctx, textBeforeCursor, boxWidthInPixels);
+    
+    const cursorLineIndex = lines.length > 0 ? lines.length - 1 : 0;
+    const textOnCursorLine = lines[cursorLineIndex] || '';
+    
+    const pixelX = box.x * GRID_CONSTANTS.gridSize + PADDING + ctx.measureText(textOnCursorLine).width;
+    const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
+    return { pixelX, pixelY, cursorLineIndex };
+};
+
+const renderTextInBox = (
+    ctx: CanvasRenderingContext2D,
+    box: Box,
+    isDarkMode: boolean
+) => {
+    ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    ctx.textBaseline = 'top';
+    
+    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize - PADDING * 2;
+    const lines = breakTextIntoLines(ctx, box.text, boxWidthInPixels);
+
+    lines.forEach((line, lineIndex) => {
+        if ((lineIndex + 1) * LINE_HEIGHT > box.height * GRID_CONSTANTS.gridSize) return;
+        const drawX = box.x * GRID_CONSTANTS.gridSize + PADDING;
+        const drawY = box.y * GRID_CONSTANTS.gridSize + (lineIndex * LINE_HEIGHT) + PADDING;
+        ctx.fillText(line, drawX, drawY);
+    });
+};
+
 // Helper function to break text into lines based on measured width
 const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidthInPixels: number) => {
     const allLines: string[] = [];
@@ -90,6 +128,27 @@ export const useCanvasDrawing = (
         return () => clearInterval(interval);
     }, []);
 
+    const getCursorIndexFromClick = useCallback((box: Box, clickPixelX: number, clickPixelY: number): number => {
+        const canvas = canvasRef.current;
+        if (!canvas) return 0;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return 0;
+
+        let closestIndex = 0;
+        let minDistance = Infinity;
+
+        for (let i = 0; i <= box.text.length; i++) {
+            const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, i);
+            // Compare distance to the center of the character's clickable area
+            const dist = Math.pow(clickPixelX - pixelX, 2) + Math.pow(clickPixelY - (pixelY + (FONT_SIZE / 2)), 2);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestIndex = i;
+            }
+        }
+        return closestIndex;
+    }, [canvasRef]);
+
     const draw = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -119,36 +178,6 @@ export const useCanvasDrawing = (
             ctx.stroke();
         }
         
-        const getCursorPixelPosition = (box: Box, charIndex: number) => {
-            ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-            const textBeforeCursor = box.text.substring(0, charIndex);
-            const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize - PADDING * 2;
-            const lines = breakTextIntoLines(ctx, textBeforeCursor, boxWidthInPixels);
-            
-            const cursorLineIndex = lines.length > 0 ? lines.length - 1 : 0;
-            const textOnCursorLine = lines[cursorLineIndex] || '';
-            
-            const pixelX = box.x * GRID_CONSTANTS.gridSize + PADDING + ctx.measureText(textOnCursorLine).width;
-            const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
-            return { pixelX, pixelY, cursorLineIndex };
-        };
-
-        const renderTextInBox = (box: Box) => {
-            ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
-            ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-            ctx.textBaseline = 'top';
-            
-            const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize - PADDING * 2;
-            const lines = breakTextIntoLines(ctx, box.text, boxWidthInPixels);
-
-            lines.forEach((line, lineIndex) => {
-                if ((lineIndex + 1) * LINE_HEIGHT > box.height * GRID_CONSTANTS.gridSize) return;
-                const drawX = box.x * GRID_CONSTANTS.gridSize + PADDING;
-                const drawY = box.y * GRID_CONSTANTS.gridSize + (lineIndex * LINE_HEIGHT) + PADDING;
-                ctx.fillText(line, drawX, drawY);
-            });
-        };
-
         boxes.forEach(box => {
             const rectX = box.x * GRID_CONSTANTS.gridSize;
             const rectY = box.y * GRID_CONSTANTS.gridSize;
@@ -207,13 +236,13 @@ export const useCanvasDrawing = (
                 ctx.stroke();
             }
 
-            renderTextInBox(box);
+            renderTextInBox(ctx, box, isDarkMode);
         });
 
         if (cursor && cursor.boxId === selectedBoxId && isCursorVisible) {
             const box = boxes.find(b => b.id === cursor.boxId);
             if (box) {
-                const { pixelX, pixelY, cursorLineIndex } = getCursorPixelPosition(box, cursor.index);
+                const { pixelX, pixelY, cursorLineIndex } = getCursorPixelPosition(ctx, box, cursor.index);
                 
                 // Only draw cursor if it's within the visible height of the box
                 if ((cursorLineIndex + 1) * LINE_HEIGHT <= box.height * GRID_CONSTANTS.gridSize) {
@@ -237,5 +266,5 @@ export const useCanvasDrawing = (
         }
     }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible, hoveredResizeHandle]);
 
-    return { draw };
+    return { draw, getCursorIndexFromClick };
 }; 
