@@ -12,6 +12,29 @@ const FONT_FAMILY = '"Courier New", Courier, monospace';
 const PADDING = 2;
 const LINE_HEIGHT = GRID_CONSTANTS.gridSize;
 
+const getCharWidth = (char: string): number => {
+    // Half-width for ASCII letters, numbers, and common punctuation
+    if (/[a-zA-Z0-9]/.test(char) || /[\s.,!?;:'"(){}[\]<>\-_+=@#$%^&*|\\/]/.test(char)) {
+        return GRID_CONSTANTS.gridSize / 2;
+    }
+    // Full-width for CJK characters and full-width symbols
+    else if (/[\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]/.test(char)) {
+        return GRID_CONSTANTS.gridSize;
+    }
+    // Default other symbols to full-width
+    else {
+        return GRID_CONSTANTS.gridSize;
+    }
+};
+
+const calculateCustomTextWidth = (text: string): number => {
+    let width = 0;
+    for (const char of text) {
+        width += getCharWidth(char);
+    }
+    return width;
+};
+
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
     if (width < 2 * radius) radius = width / 2;
     if (height < 2 * radius) radius = height / 2;
@@ -31,13 +54,13 @@ const getCursorPixelPosition = (
 ) => {
     ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
     const textBeforeCursor = box.text.substring(0, charIndex);
-    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize - PADDING * 2;
+    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize;
     const lines = breakTextIntoLines(ctx, textBeforeCursor, boxWidthInPixels);
     
     const cursorLineIndex = lines.length > 0 ? lines.length - 1 : 0;
     const textOnCursorLine = lines[cursorLineIndex] || '';
     
-    const pixelX = box.x * GRID_CONSTANTS.gridSize + PADDING + ctx.measureText(textOnCursorLine).width;
+    const pixelX = box.x * GRID_CONSTANTS.gridSize + calculateCustomTextWidth(textOnCursorLine);
     const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
     return { pixelX, pixelY, cursorLineIndex };
 };
@@ -51,66 +74,102 @@ const renderTextInBox = (
     ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
     ctx.textBaseline = 'top';
     
-    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize - PADDING * 2;
+    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize;
     const lines = breakTextIntoLines(ctx, box.text, boxWidthInPixels);
 
     lines.forEach((line, lineIndex) => {
         if ((lineIndex + 1) * LINE_HEIGHT > box.height * GRID_CONSTANTS.gridSize) return;
-        const drawX = box.x * GRID_CONSTANTS.gridSize + PADDING;
+        let drawX = box.x * GRID_CONSTANTS.gridSize;
         const drawY = box.y * GRID_CONSTANTS.gridSize + (lineIndex * LINE_HEIGHT) + PADDING;
-        ctx.fillText(line, drawX, drawY);
+        
+        for (const char of line) {
+            ctx.fillText(char, drawX, drawY);
+            drawX += getCharWidth(char);
+        }
     });
 };
 
-// Helper function to break text into lines based on measured width
-const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidthInPixels: number) => {
+// Re-introducing a simplified and correct version of this helper.
+const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidthInPixels: number): string[] => {
     const allLines: string[] = [];
     if (!text && text !== '') return allLines;
 
     const hardLines = text.split('\n');
 
     for (const hardLine of hardLines) {
-        // Apply the word-wrapping logic to each hardLine
-        const wordsAndSymbols = hardLine.split(/(\s+|[.,!?;:()\[\]{}'"])/).filter(token => token);
-        
-        if (wordsAndSymbols.length === 0) {
-            // This handles empty lines (e.g., from double Enter)
+        if (!hardLine) {
             allLines.push('');
             continue;
         }
-
+        
         let currentLine = '';
-        for (const token of wordsAndSymbols) {
-            // This part for extremely long tokens needs to be preserved
-            if (ctx.measureText(token).width > boxWidthInPixels) {
-                for (const char of token) {
-                    const potentialLineWithChar = currentLine + char;
-                    if (ctx.measureText(potentialLineWithChar).width > boxWidthInPixels && currentLine) {
-                        allLines.push(currentLine);
-                        currentLine = char;
+        const words = hardLine.split(' ');
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i];
+
+            // First, check if the word itself is wider than the box.
+            if (calculateCustomTextWidth(word) > boxWidthInPixels) {
+                // If so, it needs to be broken up character by character.
+                // But first, push whatever was on the current line.
+                if (currentLine) {
+                    allLines.push(currentLine);
+                }
+                currentLine = ''; // Start fresh for the broken word.
+
+                let tempLine = '';
+                for (const char of word) {
+                    const lineWithChar = tempLine + char;
+                    if (calculateCustomTextWidth(lineWithChar) > boxWidthInPixels) {
+                        allLines.push(tempLine);
+                        tempLine = char;
                     } else {
-                        currentLine = potentialLineWithChar;
+                        tempLine = lineWithChar;
                     }
                 }
-                continue;
-            }
-
-            const potentialLine = currentLine + token;
-            if (ctx.measureText(potentialLine).width > boxWidthInPixels && currentLine) {
-                allLines.push(currentLine);
-                // Start the new line, but trim leading space if the token is a space.
-                currentLine = token.trimStart();
+                currentLine = tempLine; // The remainder of the broken word.
             } else {
-                currentLine = potentialLine;
+                // If the word fits on a line by itself, see if it fits on the current one.
+                const lineWithWord = currentLine ? `${currentLine} ${word}` : word;
+                if (calculateCustomTextWidth(lineWithWord) > boxWidthInPixels) {
+                    // Doesn't fit, so push the old line and start a new one.
+                    allLines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    // Fits, so add it to the current line.
+                    currentLine = lineWithWord;
+                }
             }
         }
-
-        if (currentLine) {
-            allLines.push(currentLine);
-        }
+        allLines.push(currentLine);
     }
 
     return allLines;
+};
+
+export const calculateSizeForText = (ctx: CanvasRenderingContext2D, text: string): { width: number, height: number } => {
+    if (!text) {
+        return { width: 2, height: 1 }; // Default size for empty box
+    }
+
+    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    const lines = text.split('\n');
+    let maxLineWidth = 0;
+    
+    for (const line of lines) {
+        const lineWidth = calculateCustomTextWidth(line);
+        if (lineWidth > maxLineWidth) {
+            maxLineWidth = lineWidth;
+        }
+    }
+    
+    const widthInGrids = Math.max(2, Math.ceil(maxLineWidth / GRID_CONSTANTS.gridSize));
+    
+    // Now, calculate height based on wrapping with the calculated width
+    const boxWidthInPixels = widthInGrids * GRID_CONSTANTS.gridSize;
+    const wrappedLines = breakTextIntoLines(ctx, text, boxWidthInPixels);
+    const heightInGrids = Math.max(1, wrappedLines.length);
+
+    return { width: widthInGrids, height: heightInGrids };
 };
 
 export const useCanvasDrawing = (
@@ -119,7 +178,7 @@ export const useCanvasDrawing = (
     selectedBoxId: string | null,
     newBoxPreview: BoxPreview | null,
     cursor: Cursor | null,
-    hoveredResizeHandle: string | null
+    hoveredDeleteButton: string | null
 ) => {
     const [isCursorVisible, setIsCursorVisible] = useState(true);
 
@@ -203,33 +262,45 @@ export const useCanvasDrawing = (
             roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
             ctx.stroke();
             
-            if (box.id === selectedBoxId || box.id === hoveredResizeHandle) {
-                const handleX = rectX + rectW;
-                const handleY = rectY + rectH;
+            // Draw controls only for the selected box
+            if (box.id === selectedBoxId) {
                 const handleRadius = 5;
-                const isHovered = box.id === hoveredResizeHandle;
+
+                // Draw delete button
+                const deleteHandleX = rectX + rectW;
+                const deleteHandleY = rectY;
+                const isHoveredDelete = box.id === hoveredDeleteButton;
 
                 ctx.beginPath();
-                ctx.arc(handleX, handleY, handleRadius, 0, 2 * Math.PI);
-                
-                // Fill with background color to hide the box corner underneath
-                ctx.fillStyle = isDarkMode ? '#2d2d2d' : '#ffffff'; 
+                ctx.arc(deleteHandleX, deleteHandleY, handleRadius, 0, 2 * Math.PI);
+                ctx.fillStyle = isDarkMode ? '#2d2d2d' : '#ffffff';
                 ctx.fill();
-
                 ctx.beginPath();
-                ctx.arc(handleX, handleY, handleRadius, 0, 2 * Math.PI);
-                
-                if (isHovered) {
-                    ctx.fillStyle = isDarkMode ? "rgba(130, 200, 255, 1)" : "rgba(0, 120, 255, 1)";
+                ctx.arc(deleteHandleX, deleteHandleY, handleRadius, 0, 2 * Math.PI);
+
+                if (isHoveredDelete) {
+                    ctx.fillStyle = "rgba(255, 100, 100, 1)";
                     ctx.fill();
                 } else {
-                    ctx.strokeStyle = isDarkMode ? "rgba(130, 200, 255, 0.8)" : "rgba(0, 120, 255, 0.8)";
+                    ctx.strokeStyle = "rgba(255, 100, 100, 0.8)";
                     ctx.lineWidth = 1.5;
                     ctx.stroke();
                 }
+
+                // Draw 'X' in delete button
+                ctx.strokeStyle = isHoveredDelete ? '#ffffff' : "rgba(255, 100, 100, 0.9)";
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                const xOffset = handleRadius * 0.4;
+                ctx.moveTo(deleteHandleX - xOffset, deleteHandleY - xOffset);
+                ctx.lineTo(deleteHandleX + xOffset, deleteHandleY + xOffset);
+                ctx.moveTo(deleteHandleX + xOffset, deleteHandleY - xOffset);
+                ctx.lineTo(deleteHandleX - xOffset, deleteHandleY + xOffset);
+                ctx.stroke();
             }
             
             if (box.id === selectedBoxId) {
+                const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                 ctx.strokeStyle = isDarkMode ? "rgba(100, 180, 255, 1)" : "rgba(0, 100, 255, 1)";
                 ctx.lineWidth = 2;
                 roundRect(ctx, rectX - 1, rectY - 1, rectW + 2, rectH + 2, borderRadius + 1);
@@ -264,7 +335,7 @@ export const useCanvasDrawing = (
             );
             ctx.setLineDash([]);
         }
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible, hoveredResizeHandle]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible, hoveredDeleteButton]);
 
     return { draw, getCursorIndexFromClick };
 }; 

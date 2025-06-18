@@ -3,7 +3,7 @@ import "./App.css";
 import { GRID_CONSTANTS, Box } from "./types";
 import { useBoxes } from "./hooks/useBoxes";
 import { useInteraction } from "./hooks/useInteraction";
-import { useCanvasDrawing } from "./hooks/useCanvasDrawing";
+import { useCanvasDrawing, calculateSizeForText } from "./hooks/useCanvasDrawing";
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { open, save } from '@tauri-apps/plugin-dialog';
 
@@ -14,7 +14,7 @@ function App() {
 
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
-  const { boxes, setBoxes, findBoxAt, updateBoxText, addBox } = useBoxes();
+  const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox } = useBoxes();
   
   const {
     selectedBoxId,
@@ -23,7 +23,7 @@ function App() {
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
-    hoveredResizeHandle,
+    hoveredDeleteButton,
   } = useInteraction(
     boxes,
     setBoxes,
@@ -37,6 +37,10 @@ function App() {
         const newIndex = getCursorIndexFromClick(box, mouseX, mouseY);
         inputRef.current?.focus();
         setCursor({ boxId: box.id, index: newIndex });
+    },
+    deleteBox,
+    (gridX: number, gridY: number) => {
+        addBox({ x: gridX, y: gridY, width: 2, height: 1 });
     }
   );
 
@@ -46,7 +50,7 @@ function App() {
     selectedBoxId,
     newBoxPreview,
     cursor,
-    hoveredResizeHandle
+    hoveredDeleteButton
   );
 
   useEffect(() => {
@@ -67,12 +71,18 @@ function App() {
   }, [selectedBoxId]);
 
   const handleTextInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isComposing.current) return;
-    if (!selectedBoxId) return;
+    if (isComposing.current || !selectedBoxId) return;
+    
     const newText = e.currentTarget.value;
     const newCursorIndex = e.currentTarget.selectionStart;
 
-    updateBoxText(selectedBoxId, newText);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    const { width, height } = calculateSizeForText(ctx, newText);
+    updateBox(selectedBoxId, newText, width, height);
     setCursor({ boxId: selectedBoxId, index: newCursorIndex });
   };
 

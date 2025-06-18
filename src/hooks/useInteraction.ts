@@ -15,7 +15,9 @@ export const useInteraction = (
     findBoxAt: (gridX: number, gridY: number) => Box | undefined,
     addBox: (box: Omit<Box, 'id' | 'text'>) => void,
     onSelectBox: (box: Box) => void,
-    onSetCursor: (box: Box, mouseX: number, mouseY: number) => void
+    onSetCursor: (box: Box, mouseX: number, mouseY: number) => void,
+    onDeleteBox: (boxId: string) => void,
+    onDoubleClickEmpty: (gridX: number, gridY: number) => void
 ) => {
     const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
     const [draggingBox, setDraggingBox] = useState<{
@@ -23,11 +25,11 @@ export const useInteraction = (
         offsetX: number;
         offsetY: number;
     } | null>(null);
-    const [resizingBox, setResizingBox] = useState<string | null>(null);
-    const [hoveredResizeHandle, setHoveredResizeHandle] = useState<string | null>(null);
+    const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
     const [newBoxPreview, setNewBoxPreview] = useState<BoxPreview | null>(null);
 
     const mouseDownRef = useRef<MouseDownState | null>(null);
+    const lastClickRef = useRef<{ time: number, x: number, y: number } | null>(null);
     
     const selectedBox = boxes.find(b => b.id === selectedBoxId);
 
@@ -38,14 +40,29 @@ export const useInteraction = (
         const gridX = Math.floor(mouseX / GRID_CONSTANTS.gridSize);
         const gridY = Math.floor(mouseY / GRID_CONSTANTS.gridSize);
 
-        // If a resize handle is being hovered, prioritize resize mode.
-        if (hoveredResizeHandle) {
-            setResizingBox(hoveredResizeHandle);
-            mouseDownRef.current = { time: Date.now(), x: mouseX, y: mouseY, gridX, gridY, boxId: hoveredResizeHandle };
+        if (hoveredDeleteButton) {
+            onDeleteBox(hoveredDeleteButton);
+            if (hoveredDeleteButton === selectedBoxId) {
+                setSelectedBoxId(null);
+            }
+            setHoveredDeleteButton(null);
+            mouseDownRef.current = null;
             return;
         }
         
         const clickedBox = findBoxAt(gridX, gridY);
+
+        const now = Date.now();
+        const DOUBLE_CLICK_THRESHOLD = 300; // ms
+        if (lastClickRef.current && now - lastClickRef.current.time < DOUBLE_CLICK_THRESHOLD && lastClickRef.current.x === gridX && lastClickRef.current.y === gridY) {
+            if (!clickedBox) {
+                onDoubleClickEmpty(gridX, gridY);
+            }
+            lastClickRef.current = null; // Reset after double click
+            mouseDownRef.current = null;
+            return;
+        }
+        lastClickRef.current = { time: now, x: gridX, y: gridY };
 
         // If clicking on the already selected box, it's a cursor reposition event.
         if (clickedBox && clickedBox.id === selectedBoxId) {
@@ -72,60 +89,38 @@ export const useInteraction = (
         const rect = e.currentTarget.getBoundingClientRect();
         const currentMouseX = e.clientX - rect.left;
         const currentMouseY = e.clientY - rect.top;
-
-        if (resizingBox) {
-            const currentGridX = Math.floor(currentMouseX / GRID_CONSTANTS.gridSize);
-            const currentGridY = Math.floor(currentMouseY / GRID_CONSTANTS.gridSize);
-            setBoxes(prevBoxes => {
-                const box = prevBoxes.find(b => b.id === resizingBox);
-                if (!box) return prevBoxes;
-
-                const newWidth = Math.max(2, currentGridX - box.x + 1);
-                const newHeight = Math.max(2, currentGridY - box.y + 1);
-                
-                const updatedBox = { ...box, width: newWidth, height: newHeight };
-
-                const hasCollision = prevBoxes.some(other => 
-                    other.id !== resizingBox && doBoxesIntersect(updatedBox, other)
-                );
-
-                if (hasCollision) {
-                    return prevBoxes;
-                }
-
-                return prevBoxes.map(b => b.id === resizingBox ? updatedBox : b);
-            });
-            return;
-        }
         
         if (!mouseDownRef.current) {
-            let isHoveringOnResizeHandle = false;
+            let isHoveringOnDeleteButton = false;
             const handleHitRadius = 8; 
+
             for (const box of boxes) {
+                // Only show handles for selected box for less visual noise.
+                if (box.id !== selectedBoxId) continue;
+
                 const rectX = box.x * GRID_CONSTANTS.gridSize;
                 const rectY = box.y * GRID_CONSTANTS.gridSize;
                 const rectW = box.width * GRID_CONSTANTS.gridSize;
-                const rectH = box.height * GRID_CONSTANTS.gridSize;
-                const handleCenterX = rectX + rectW;
-                const handleCenterY = rectY + rectH;
 
-                const distance = Math.sqrt(
-                    Math.pow(currentMouseX - handleCenterX, 2) +
-                    Math.pow(currentMouseY - handleCenterY, 2)
-                );
+                // Check for delete button hover
+                const deleteHandleCenterX = rectX + rectW;
+                const deleteHandleCenterY = rectY;
+                const deleteDistance = Math.sqrt(Math.pow(currentMouseX - deleteHandleCenterX, 2) + Math.pow(currentMouseY - deleteHandleCenterY, 2));
 
-                if (distance < handleHitRadius) {
-                    isHoveringOnResizeHandle = true;
-                    setHoveredResizeHandle(box.id);
-                    e.currentTarget.style.cursor = 'nwse-resize';
-                    break;
+                if (deleteDistance < handleHitRadius) {
+                    isHoveringOnDeleteButton = true;
+                    setHoveredDeleteButton(box.id);
                 }
             }
 
-            if (!isHoveringOnResizeHandle) {
-                setHoveredResizeHandle(null);
+            if (!isHoveringOnDeleteButton) setHoveredDeleteButton(null);
+
+            if (isHoveringOnDeleteButton) {
+                e.currentTarget.style.cursor = 'pointer';
+            } else {
                 e.currentTarget.style.cursor = 'default';
             }
+
             return;
         }
 
@@ -241,11 +236,6 @@ export const useInteraction = (
             mouseDownRef.current = null;
         }
         
-        if (resizingBox) {
-            setResizingBox(null);
-            mouseDownRef.current = null;
-        }
-
         if (mouseDownRef.current) {
             const CLICK_TIME_THRESHOLD = 200;
             const timeElapsed = Date.now() - mouseDownRef.current.time;
@@ -270,9 +260,9 @@ export const useInteraction = (
         selectedBoxId,
         selectedBox,
         newBoxPreview,
-        hoveredResizeHandle,
         handleMouseDown,
         handleMouseMove,
         handleMouseUp,
+        hoveredDeleteButton,
     };
 }; 
