@@ -2,11 +2,6 @@ import { RefObject, useCallback, useEffect, useState } from 'react';
 import { Box, GRID_CONSTANTS } from '../types';
 import { BoxPreview } from './useInteraction';
 
-interface GridConfig {
-    columns: number;
-    rows: number;
-}
-
 type Cursor = {
     boxId: string;
     index: number;
@@ -16,6 +11,18 @@ const FONT_SIZE = 16;
 const FONT_FAMILY = '"Courier New", Courier, monospace';
 const PADDING = 2;
 const LINE_HEIGHT = GRID_CONSTANTS.gridSize;
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+    if (width < 2 * radius) radius = width / 2;
+    if (height < 2 * radius) radius = height / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, radius);
+    ctx.arcTo(x + width, y + height, x, y + height, radius);
+    ctx.arcTo(x, y + height, x, y, radius);
+    ctx.arcTo(x, y, x + width, y, radius);
+    ctx.closePath();
+}
 
 // Helper function to break text into lines based on measured width
 const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidthInPixels: number) => {
@@ -42,7 +49,6 @@ export const useCanvasDrawing = (
     boxes: Box[],
     selectedBoxId: string | null,
     newBoxPreview: BoxPreview | null,
-    gridConfig: GridConfig,
     cursor: Cursor | null
 ) => {
     const [isCursorVisible, setIsCursorVisible] = useState(true);
@@ -54,22 +60,27 @@ export const useCanvasDrawing = (
 
     const draw = useCallback(() => {
         const canvas = canvasRef.current;
-        if (!canvas || gridConfig.columns === 0) return;
+        if (!canvas) return;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
         // Draw grid
-        ctx.strokeStyle = "#eee";
-        ctx.lineWidth = 1;
-        for (let i = 0; i <= gridConfig.columns; i++) {
+        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
+        ctx.lineWidth = 0.5;
+        const columns = Math.floor(canvas.width / GRID_CONSTANTS.gridSize);
+        const rows = Math.floor(canvas.height / GRID_CONSTANTS.gridSize);
+
+        for (let i = 0; i <= columns; i++) {
             ctx.beginPath();
             ctx.moveTo(i * GRID_CONSTANTS.gridSize, 0);
             ctx.lineTo(i * GRID_CONSTANTS.gridSize, canvas.height);
             ctx.stroke();
         }
-        for (let i = 0; i <= gridConfig.rows; i++) {
+        for (let i = 0; i <= rows; i++) {
             ctx.beginPath();
             ctx.moveTo(0, i * GRID_CONSTANTS.gridSize);
             ctx.lineTo(canvas.width, i * GRID_CONSTANTS.gridSize);
@@ -91,7 +102,7 @@ export const useCanvasDrawing = (
         };
 
         const renderTextInBox = (box: Box) => {
-            ctx.fillStyle = '#333';
+            ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
             ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
             ctx.textBaseline = 'top';
             
@@ -107,22 +118,35 @@ export const useCanvasDrawing = (
         };
 
         boxes.forEach(box => {
-            ctx.fillStyle = "rgba(0, 100, 255, 0.1)";
-            ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
-            ctx.lineWidth = 1;
-            
             const rectX = box.x * GRID_CONSTANTS.gridSize;
             const rectY = box.y * GRID_CONSTANTS.gridSize;
             const rectW = box.width * GRID_CONSTANTS.gridSize;
             const rectH = box.height * GRID_CONSTANTS.gridSize;
+            const borderRadius = 8;
 
-            ctx.fillRect(rectX, rectY, rectW, rectH);
-            ctx.strokeRect(rectX, rectY, rectW, rectH);
+            ctx.shadowColor = isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.1)';
+            ctx.shadowBlur = 12;
+            ctx.shadowOffsetY = 4;
+            
+            ctx.fillStyle = isDarkMode ? "rgba(45, 45, 45, 0.75)" : "rgba(255, 255, 255, 0.75)";
+            ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.1)";
+            ctx.lineWidth = 1;
+            
+            roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
+            ctx.fill();
+            
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+
+            roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
+            ctx.stroke();
             
             if (box.id === selectedBoxId) {
-                ctx.strokeStyle = "rgba(0, 100, 255, 1)";
+                ctx.strokeStyle = isDarkMode ? "rgba(100, 180, 255, 1)" : "rgba(0, 100, 255, 1)";
                 ctx.lineWidth = 2;
-                ctx.strokeRect(rectX - 1, rectY - 1, rectW + 2, rectH + 2);
+                roundRect(ctx, rectX - 1, rectY - 1, rectW + 2, rectH + 2, borderRadius + 1);
+                ctx.stroke();
             }
 
             renderTextInBox(box);
@@ -149,7 +173,7 @@ export const useCanvasDrawing = (
             );
             ctx.setLineDash([]);
         }
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, gridConfig, cursor, isCursorVisible]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible]);
 
     return { draw };
 }; 

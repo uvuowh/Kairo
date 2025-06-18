@@ -4,6 +4,7 @@ body, html, #root {
   margin: 0;
   padding: 0;
   overflow: hidden; /* Prevent scrollbars on the body */
+  background: radial-gradient(ellipse at center, #f5f5f5 0%, #e0e0e0 100%);
 }
 
 :root {
@@ -13,7 +14,7 @@ body, html, #root {
   font-weight: 400;
 
   color: #0f0f0f;
-  background-color: #f6f6f6;
+  background-color: transparent;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -24,13 +25,42 @@ body, html, #root {
 
 .title {
   position: fixed;
+  bottom: 1rem;
+  right: 2rem;
+  z-index: 10;
+  color: rgba(0, 0, 0, 0.1);
+  font-size: 1.5rem;
+  font-weight: bold;
+  pointer-events: none; /* Make title unclickable */
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.top-bar {
+  position: fixed;
   top: 1rem;
   left: 2rem;
   z-index: 10;
-  color: rgba(0, 0, 0, 0.2);
-  font-size: 2rem;
-  font-weight: bold;
-  pointer-events: none; /* Make title unclickable */
+  display: flex;
+  gap: 0.5rem;
+}
+
+.top-bar button {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: Inter, sans-serif;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(5px);
+}
+
+.top-bar button:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
 }
 
 .app-container {
@@ -43,9 +73,13 @@ body, html, #root {
 
 .canvas-container {
   position: absolute;
-  border: 1px solid #ddd;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  /* The canvas itself handles grid drawing, so no background image here */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .hidden-textarea {
@@ -58,89 +92,34 @@ body, html, #root {
   pointer-events: none;
 }
 
-.grid-container {
-  position: relative;
-  background-image: 
-    linear-gradient(rgba(0, 0, 0, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.1) 1px, transparent 1px);
-  background-size: 20px 20px;
-  border: 2px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.box {
-  transition: all 0.1s ease-in-out;
-  user-select: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.box:hover {
-  transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.box.preview {
-  animation: pulse 1s infinite;
-}
-
-@keyframes pulse {
-  0% {
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0.6;
-  }
-}
-
-/* 调试信息样式 */
-details {
-  margin-top: 2rem;
-  text-align: left;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 1rem;
-}
-
-details summary {
-  cursor: pointer;
-  font-weight: bold;
-  color: #333;
-  padding: 0.5rem;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-details summary:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-details pre {
-  background: rgba(0, 0, 0, 0.1);
-  padding: 1rem;
-  border-radius: 4px;
-  font-size: 12px;
-  overflow: auto;
-  max-height: 200px;
-  margin-top: 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
     background-color: #2f2f2f;
   }
   
+  body, html, #root {
+    background: radial-gradient(ellipse at center, #3a3a3a 0%, #1e1e1e 100%);
+  }
+
   .title {
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.1);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.05);
+  }
+
+  .top-bar button {
+    background: rgba(40, 40, 40, 0.5);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #f0f0f0;
+  }
+
+  .top-bar button:hover {
+    background: rgba(50, 50, 50, 0.8);
+    border-color: rgba(255, 255, 255, 0.2);
   }
 
   .canvas-container {
-    border-color: #555;
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   }
 }

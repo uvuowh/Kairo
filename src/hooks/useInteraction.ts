@@ -9,17 +9,11 @@ export interface BoxPreview {
     height: number;
 }
 
-interface GridConfig {
-    columns: number;
-    rows: number;
-}
-
 export const useInteraction = (
     boxes: Box[], 
     setBoxes: React.Dispatch<React.SetStateAction<Box[]>>, 
     findBoxAt: (gridX: number, gridY: number) => Box | undefined,
     addBox: (box: Omit<Box, 'id' | 'text'>) => void,
-    gridConfig: GridConfig,
     onSelectBox: (box: Box) => void
 ) => {
     const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
@@ -92,8 +86,8 @@ export const useInteraction = (
                 const currentBox = prevBoxes.find(b => b.id === draggingBox.boxId);
                 if (!currentBox) return prevBoxes;
 
-                const proposedX = Math.max(0, Math.min(newGridX, gridConfig.columns - currentBox.width));
-                const proposedY = Math.max(0, Math.min(newGridY, gridConfig.rows - currentBox.height));
+                const proposedX = Math.max(0, newGridX);
+                const proposedY = Math.max(0, newGridY);
 
                 const deltaX = proposedX - currentBox.x;
                 const deltaY = proposedY - currentBox.y;
@@ -116,7 +110,7 @@ export const useInteraction = (
                             const newOtherX = other.x + deltaX;
                             const newOtherY = other.y + deltaY;
 
-                            if ( newOtherX < 0 || newOtherX + other.width > gridConfig.columns || newOtherY < 0 || newOtherY + other.height > gridConfig.rows ) {
+                            if ( newOtherX < 0 || newOtherY < 0 ) {
                                 return prevBoxes; 
                             }
                             
