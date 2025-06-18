@@ -26,22 +26,53 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: n
 
 // Helper function to break text into lines based on measured width
 const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidthInPixels: number) => {
-    const lines: string[] = [];
-    if (!text) return lines;
+    const allLines: string[] = [];
+    if (!text && text !== '') return allLines;
 
-    let currentLine = '';
-    for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        const potentialLine = currentLine + char;
-        if (ctx.measureText(potentialLine).width > boxWidthInPixels && currentLine.length > 0) {
-            lines.push(currentLine);
-            currentLine = char;
-        } else {
-            currentLine = potentialLine;
+    const hardLines = text.split('\n');
+
+    for (const hardLine of hardLines) {
+        // Apply the word-wrapping logic to each hardLine
+        const wordsAndSymbols = hardLine.split(/(\s+|[.,!?;:()\[\]{}'"])/).filter(token => token);
+        
+        if (wordsAndSymbols.length === 0) {
+            // This handles empty lines (e.g., from double Enter)
+            allLines.push('');
+            continue;
+        }
+
+        let currentLine = '';
+        for (const token of wordsAndSymbols) {
+            // This part for extremely long tokens needs to be preserved
+            if (ctx.measureText(token).width > boxWidthInPixels) {
+                for (const char of token) {
+                    const potentialLineWithChar = currentLine + char;
+                    if (ctx.measureText(potentialLineWithChar).width > boxWidthInPixels && currentLine) {
+                        allLines.push(currentLine);
+                        currentLine = char;
+                    } else {
+                        currentLine = potentialLineWithChar;
+                    }
+                }
+                continue;
+            }
+
+            const potentialLine = currentLine + token;
+            if (ctx.measureText(potentialLine).width > boxWidthInPixels && currentLine) {
+                allLines.push(currentLine);
+                // Start the new line, but trim leading space if the token is a space.
+                currentLine = token.trimStart();
+            } else {
+                currentLine = potentialLine;
+            }
+        }
+
+        if (currentLine) {
+            allLines.push(currentLine);
         }
     }
-    lines.push(currentLine);
-    return lines;
+
+    return allLines;
 };
 
 export const useCanvasDrawing = (
@@ -99,7 +130,7 @@ export const useCanvasDrawing = (
             
             const pixelX = box.x * GRID_CONSTANTS.gridSize + PADDING + ctx.measureText(textOnCursorLine).width;
             const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
-            return { pixelX, pixelY };
+            return { pixelX, pixelY, cursorLineIndex };
         };
 
         const renderTextInBox = (box: Box) => {
@@ -144,10 +175,17 @@ export const useCanvasDrawing = (
             ctx.stroke();
             
             if (box.id === selectedBoxId || box.id === hoveredResizeHandle) {
-                const handleX = rectX + rectW - 8;
-                const handleY = rectY + rectH - 8;
-                const handleRadius = 6;
+                const handleX = rectX + rectW;
+                const handleY = rectY + rectH;
+                const handleRadius = 5;
                 const isHovered = box.id === hoveredResizeHandle;
+
+                ctx.beginPath();
+                ctx.arc(handleX, handleY, handleRadius, 0, 2 * Math.PI);
+                
+                // Fill with background color to hide the box corner underneath
+                ctx.fillStyle = isDarkMode ? '#2d2d2d' : '#ffffff'; 
+                ctx.fill();
 
                 ctx.beginPath();
                 ctx.arc(handleX, handleY, handleRadius, 0, 2 * Math.PI);
@@ -157,7 +195,7 @@ export const useCanvasDrawing = (
                     ctx.fill();
                 } else {
                     ctx.strokeStyle = isDarkMode ? "rgba(130, 200, 255, 0.8)" : "rgba(0, 120, 255, 0.8)";
-                    ctx.lineWidth = 2;
+                    ctx.lineWidth = 1.5;
                     ctx.stroke();
                 }
             }
@@ -175,9 +213,13 @@ export const useCanvasDrawing = (
         if (cursor && cursor.boxId === selectedBoxId && isCursorVisible) {
             const box = boxes.find(b => b.id === cursor.boxId);
             if (box) {
-                const { pixelX, pixelY } = getCursorPixelPosition(box, cursor.index);
-                ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-                ctx.fillRect(pixelX, pixelY - PADDING, 2, FONT_SIZE + PADDING * 2);
+                const { pixelX, pixelY, cursorLineIndex } = getCursorPixelPosition(box, cursor.index);
+                
+                // Only draw cursor if it's within the visible height of the box
+                if ((cursorLineIndex + 1) * LINE_HEIGHT <= box.height * GRID_CONSTANTS.gridSize) {
+                    ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+                    ctx.fillRect(pixelX, pixelY - PADDING, 2, FONT_SIZE + PADDING * 2);
+                }
             }
         }
 

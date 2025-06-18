@@ -10,6 +10,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isComposing = useRef(false);
 
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
@@ -49,12 +50,24 @@ function App() {
   }, [selectedBox, cursor]);
 
   const handleTextInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isComposing.current) return;
     if (!selectedBoxId) return;
     const newText = e.currentTarget.value;
     const newCursorIndex = e.currentTarget.selectionStart;
 
     updateBoxText(selectedBoxId, newText);
     setCursor({ boxId: selectedBoxId, index: newCursorIndex });
+  };
+
+  const handleComposition = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    if (e.type === 'compositionstart') {
+        isComposing.current = true;
+    } else if (e.type === 'compositionend') {
+        isComposing.current = false;
+        // compositionend is fired before the final onInput event in some browsers,
+        // so we manually trigger the text update here to ensure correctness.
+        handleTextInput(e as any);
+    }
   };
 
   useEffect(() => {
@@ -122,6 +135,8 @@ function App() {
           className="hidden-textarea"
           onInput={handleTextInput}
           onBlur={() => setCursor(null)}
+          onCompositionStart={handleComposition}
+          onCompositionEnd={handleComposition}
         />
       </div>
     </div>

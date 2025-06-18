@@ -37,14 +37,15 @@ export const useInteraction = (
         const gridX = Math.floor(mouseX / GRID_CONSTANTS.gridSize);
         const gridY = Math.floor(mouseY / GRID_CONSTANTS.gridSize);
 
-        const clickedBox = findBoxAt(gridX, gridY);
-
-        if (hoveredResizeHandle && clickedBox?.id === hoveredResizeHandle) {
-            setResizingBox(clickedBox.id);
-            mouseDownRef.current = { time: Date.now(), x: mouseX, y: mouseY, gridX, gridY, boxId: clickedBox.id };
+        // If a resize handle is being hovered, prioritize resize mode.
+        if (hoveredResizeHandle) {
+            setResizingBox(hoveredResizeHandle);
+            mouseDownRef.current = { time: Date.now(), x: mouseX, y: mouseY, gridX, gridY, boxId: hoveredResizeHandle };
             return;
         }
         
+        const clickedBox = findBoxAt(gridX, gridY);
+
         mouseDownRef.current = {
             time: Date.now(),
             x: mouseX,
@@ -91,14 +92,14 @@ export const useInteraction = (
         
         if (!mouseDownRef.current) {
             let isHoveringOnResizeHandle = false;
-            const handleHitRadius = 10; 
+            const handleHitRadius = 8; 
             for (const box of boxes) {
                 const rectX = box.x * GRID_CONSTANTS.gridSize;
                 const rectY = box.y * GRID_CONSTANTS.gridSize;
                 const rectW = box.width * GRID_CONSTANTS.gridSize;
                 const rectH = box.height * GRID_CONSTANTS.gridSize;
-                const handleCenterX = rectX + rectW - 8;
-                const handleCenterY = rectY + rectH - 8;
+                const handleCenterX = rectX + rectW;
+                const handleCenterY = rectY + rectH;
 
                 const distance = Math.sqrt(
                     Math.pow(currentMouseX - handleCenterX, 2) +
