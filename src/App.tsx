@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
-import { GRID_CONSTANTS, Box } from "./types";
-import { useBoxes } from "./hooks/useBoxes";
+import { GRID_CONSTANTS, Box, CanvasState } from "./types";
+import { useCanvas } from "./hooks/useBoxes";
 import { useInteraction } from "./hooks/useInteraction";
 import { useCanvasDrawing, calculateSizeForText } from "./hooks/useCanvasDrawing";
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
@@ -28,7 +28,7 @@ function App() {
   
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
-  const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, resetBoxes } = useBoxes();
+  const { boxes, connections, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection } = useCanvas();
   
   const {
     selectedBoxId,
@@ -39,9 +39,10 @@ function App() {
     handleMouseUp,
     hoveredDeleteButton,
     isPanning,
+    handleContextMenu,
   } = useInteraction(
     boxes,
-    (boxes: Box[]) => setBoxes(boxes),
+    () => {},
     findBoxAt,
     addBox,
     (box: Box, worldX: number, worldY: number) => {
@@ -50,7 +51,7 @@ function App() {
             const newIndex = getCursorIndexFromClick(box, worldX, worldY);
             setCursor({ boxId: box.id, index: newIndex });
         } else {
-        setCursor({ boxId: box.id, index: box.text.length });
+            setCursor({ boxId: box.id, index: box.text.length });
         }
     },
     (box: Box, mouseX: number, mouseY: number) => {
@@ -65,12 +66,14 @@ function App() {
     pan,
     setPan,
     zoom,
-    moveBoxes
+    moveBoxes,
+    addConnection
   );
 
   const { draw, getCursorIndexFromClick } = useCanvasDrawing(
     canvasRef,
     boxes,
+    connections,
     selectedBoxId,
     newBoxPreview,
     cursor,
@@ -97,61 +100,75 @@ function App() {
   }, [selectedBoxId]);
 
   useEffect(() => {
-    // This effect handles redrawing when state changes,
-    // but avoids redrawing during a direct pan drag, as that is handled by the interaction hook.
     if (!isPanning) {
         draw();
     }
-  }, [pan, zoom, boxes, cursor, isPanning, draw]);
+  }, [pan, zoom, boxes, connections, cursor, isPanning, draw]);
 
   const startAnimation = () => {
     if (animationFrameId.current) return;
 
     const animate = () => {
-      const LERP_FACTOR = 0.1; // Smoothing factor
+      const PAN_LERP_FACTOR = 0.2;
+      const ZOOM_LERP_FACTOR = 0.15;
+      const MAX_PAN_SPEED = 60;
 
       let needsToContinue = false;
-
-      setZoom(currentZoom => {
-        const dZoom = targetZoom.current - currentZoom;
-        if (Math.abs(dZoom) > 0.001) {
-            needsToContinue = true;
-            return currentZoom + dZoom * LERP_FACTOR;
-        }
-        return targetZoom.current;
-      });
 
       setPan(currentPan => {
         const dx = targetPan.current.x - currentPan.x;
         const dy = targetPan.current.y - currentPan.y;
-        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
-            needsToContinue = true;
-        return { x: currentPan.x + dx * LERP_FACTOR, y: currentPan.y + dy * LERP_FACTOR };
+
+        if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
+            return targetPan.current;
         }
-        return targetPan.current;
+        needsToContinue = true;
+
+        let moveX = dx * PAN_LERP_FACTOR;
+        let moveY = dy * PAN_LERP_FACTOR;
+
+        const speed = Math.sqrt(moveX * moveX + moveY * moveY);
+
+        if (speed > MAX_PAN_SPEED) {
+            moveX = (moveX / speed) * MAX_PAN_SPEED;
+            moveY = (moveY / speed) * MAX_PAN_SPEED;
+        }
+        
+        return { x: currentPan.x + moveX, y: currentPan.y + moveY };
       });
       
-      draw(); // Redraw on each frame of the animation for smoothness
+      setZoom(currentZoom => {
+        const dZoom = targetZoom.current - currentZoom;
+        if (Math.abs(dZoom) < 0.001) {
+            return targetZoom.current;
+        }
+        needsToContinue = true;
+        
+        return currentZoom + dZoom * ZOOM_LERP_FACTOR;
+      });
+
+      draw(); 
 
       if (needsToContinue) {
-      animationFrameId.current = requestAnimationFrame(animate);
+        animationFrameId.current = requestAnimationFrame(animate);
       } else {
-        animationFrameId.current = null;
+        if (animationFrameId.current) {
+            cancelAnimationFrame(animationFrameId.current);
+            animationFrameId.current = null;
+        }
+        draw();
       }
     };
     animationFrameId.current = requestAnimationFrame(animate);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-    // Prevent wheel actions while panning with the mouse
     if (isPanning) {
         return;
     }
     e.preventDefault();
 
     if (e.ctrlKey) {
-        // --- Zoom Logic (Pinch Gesture) ---
-        // This is always animated for a smooth feel.
         const zoomSensitivity = 0.005;
         const oldTargetZoom = targetZoom.current;
         const zoomMultiplier = Math.exp(-e.deltaY * zoomSensitivity);
@@ -168,24 +185,18 @@ function App() {
         targetPan.current.y = mouseY - (mouseY - targetPan.current.y) * zoomRatio;
         startAnimation();
     } else {
-        // --- Pan Logic (Two-finger scroll or Mouse Wheel) ---
-        // e.deltaMode === 0 means pixels (trackpads, precision mice)
-        // e.deltaMode === 1 means lines (traditional mouse wheel)
         const isPixelBasedScroll = e.deltaMode === 0;
 
         if (isPixelBasedScroll) {
-            // For trackpads, apply pan directly for a 1:1 feel.
             setPan(prevPan => {
                 const newPan = {
                     x: prevPan.x - e.deltaX,
                     y: prevPan.y - e.deltaY
                 };
-                // Also update the animation target to prevent conflicts.
                 targetPan.current = newPan;
                 return newPan;
             });
         } else {
-            // For traditional mouse wheels, use smooth animation.
             targetPan.current.x -= e.deltaX;
             targetPan.current.y -= e.deltaY;
             startAnimation();
@@ -214,49 +225,8 @@ function App() {
         isComposing.current = true;
     } else if (e.type === 'compositionend') {
         isComposing.current = false;
-        // compositionend is fired before the final onInput event in some browsers,
-        // so we manually trigger the text update here to ensure correctness.
         handleTextInput(e as any);
     }
-  };
-
-  const handleSave = async () => {
-    try {
-        const filePath = await save({
-            title: "Save Kairo File",
-            filters: [{ name: 'Kairo File', extensions: ['kairo'] }]
-        });
-        if (filePath) {
-            await writeTextFile(filePath, JSON.stringify(boxes, null, 2));
-        }
-    } catch (err) {
-        console.error("Error saving file:", err);
-        // Optionally, show an error to the user
-    }
-  };
-
-  const handleLoad = async () => {
-      try {
-          const selectedPath = await open({
-              multiple: false,
-              title: "Open Kairo File",
-              filters: [{ name: 'Kairo File', extensions: ['kairo'] }]
-          });
-          if (typeof selectedPath === 'string') {
-              const content = await readTextFile(selectedPath);
-              const loadedBoxes: Box[] = JSON.parse(content);
-              // Basic validation
-              if (Array.isArray(loadedBoxes)) {
-                const syncedBoxes = await invoke<Box[]>('set_all_boxes', { newBoxes: loadedBoxes });
-                setBoxes(syncedBoxes);
-              } else {
-                console.error("Invalid file format");
-              }
-          }
-      } catch (err) {
-          console.error("Error loading file:", err);
-          // Optionally, show an error to the user
-      }
   };
 
   const handleResetView = async () => {
@@ -299,11 +269,10 @@ function App() {
         y: (viewportHeight / 2) - (contentCenterY * finalZoom)
     };
 
-    // --- Custom Animation Logic ---
     const startPan = pan;
     const startZoom = zoom;
     const animationStartTime = Date.now();
-    const animationDuration = 500; // in ms
+    const animationDuration = 500;
 
     const startContentScreenX = (contentCenterX * startZoom) + startPan.x;
     const startContentScreenY = (contentCenterY * startZoom) + startPan.y;
@@ -313,7 +282,7 @@ function App() {
     const animate = () => {
         const elapsedTime = Date.now() - animationStartTime;
         const progress = Math.min(elapsedTime / animationDuration, 1);
-        const easedProgress = 1 - Math.pow(1 - progress, 4); // easeOutQuart
+        const easedProgress = 1 - Math.pow(1 - progress, 4); 
 
         const currentZoom = startZoom + (finalZoom - startZoom) * easedProgress;
 
@@ -330,7 +299,7 @@ function App() {
             animationFrameId.current = requestAnimationFrame(animate);
         } else {
             animationFrameId.current = null;
-            setPan(finalPan); // Snap to final position
+            setPan(finalPan);
             setZoom(finalZoom);
         }
     };
@@ -338,10 +307,40 @@ function App() {
     animationFrameId.current = requestAnimationFrame(animate);
   };
 
-  const handleClearCanvas = () => {
-    if (window.confirm("Are you sure you want to clear the canvas? This cannot be undone.")) {
-        resetBoxes();
+  const handleSave = async () => {
+    try {
+        const filePath = await save({
+            title: "Save Kairo File",
+            filters: [{ name: 'Kairo File', extensions: ['kairo'] }]
+        });
+        if (filePath) {
+            await writeTextFile(filePath, JSON.stringify({ boxes, connections }, null, 2));
+        }
+    } catch (err) {
+        console.error("Error saving file:", err);
     }
+  };
+
+  const handleLoad = async () => {
+      try {
+          const selectedPath = await open({
+              multiple: false,
+              title: "Open Kairo File",
+              filters: [{ name: 'Kairo File', extensions: ['kairo'] }]
+          });
+          if (typeof selectedPath === 'string') {
+              const content = await readTextFile(selectedPath);
+              const loadedState: CanvasState = JSON.parse(content);
+              if (loadedState && Array.isArray(loadedState.boxes) && Array.isArray(loadedState.connections)) {
+                const syncedState = await invoke<CanvasState>('load_new_state', { newState: loadedState });
+                setCanvasState(syncedState);
+              } else {
+                console.error("Invalid file format");
+              }
+          }
+      } catch (err) {
+          console.error("Error loading file:", err);
+      }
   };
 
   return (
@@ -350,7 +349,6 @@ function App() {
         <button onClick={handleSave}>Save</button>
         <button onClick={handleLoad}>Load</button>
         <button onClick={handleResetView}>Reset View</button>
-        <button onClick={handleClearCanvas}>Clear Canvas</button>
       </div>
       <h1 className="title">Kairo</h1>
       <div
@@ -359,6 +357,7 @@ function App() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
+        onContextMenu={handleContextMenu}
         style={{ cursor: isPanning ? 'grabbing' : 'default' }}
       >
         <canvas
@@ -368,7 +367,7 @@ function App() {
           ref={inputRef}
           className="hidden-textarea"
           onInput={handleTextInput}
-          onBlur={() => { /* Now handled by useEffect */ }}
+          onBlur={() => {}}
           onCompositionStart={handleComposition}
           onCompositionEnd={handleComposition}
         />

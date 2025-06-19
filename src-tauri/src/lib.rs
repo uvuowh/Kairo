@@ -1,7 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use log::{info, error, debug};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
@@ -14,7 +14,7 @@ struct BoundingBox {
     height: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 struct Box {
     id: String,
     x: i32,
@@ -24,8 +24,20 @@ struct Box {
     text: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+struct Connection {
+    from: String,
+    to: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+struct CanvasState {
+    boxes: Vec<Box>,
+    connections: Vec<Connection>,
+}
+
 struct AppState {
-    boxes: Mutex<Vec<Box>>,
+    canvas_state: Mutex<CanvasState>,
 }
 
 fn do_boxes_intersect(a: &Box, b: &Box) -> bool {
@@ -33,13 +45,13 @@ fn do_boxes_intersect(a: &Box, b: &Box) -> bool {
 }
 
 #[tauri::command]
-fn get_all_boxes(state: State<AppState>) -> Vec<Box> {
-    state.boxes.lock().unwrap().clone()
+fn get_full_state(state: State<AppState>) -> CanvasState {
+    state.canvas_state.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn add_box(x: i32, y: i32, width: i32, height: i32, state: State<AppState>) -> Vec<Box> {
-    let mut boxes = state.boxes.lock().unwrap();
+fn add_box(x: i32, y: i32, width: i32, height: i32, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
     let new_box = Box {
         id: Uuid::new_v4().to_string(),
         x,
@@ -48,52 +60,53 @@ fn add_box(x: i32, y: i32, width: i32, height: i32, state: State<AppState>) -> V
         height,
         text: "".to_string(),
     };
-    boxes.push(new_box);
-    boxes.clone()
+    canvas_state.boxes.push(new_box);
+    canvas_state.clone()
 }
 
 #[tauri::command]
-fn update_box_text(id: String, text: String, width: i32, height: i32, state: State<AppState>) -> Vec<Box> {
-    let mut boxes = state.boxes.lock().unwrap();
-    if let Some(box_to_update) = boxes.iter_mut().find(|b| b.id == id) {
+fn update_box_text(id: String, text: String, width: i32, height: i32, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    if let Some(box_to_update) = canvas_state.boxes.iter_mut().find(|b| b.id == id) {
         box_to_update.text = text;
         box_to_update.width = width;
         box_to_update.height = height;
     }
-    boxes.clone()
+    canvas_state.clone()
 }
 
 #[tauri::command]
-fn delete_box(id: String, state: State<AppState>) -> Vec<Box> {
-    let mut boxes = state.boxes.lock().unwrap();
-    boxes.retain(|b| b.id != id);
-    boxes.clone()
+fn delete_box(id: String, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    canvas_state.boxes.retain(|b| b.id != id);
+    canvas_state.connections.retain(|c| c.from != id && c.to != id);
+    canvas_state.clone()
 }
 
 #[tauri::command]
-fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> Vec<Box> {
-    let mut boxes_guard = state.boxes.lock().unwrap();
-    let original_boxes = boxes_guard.clone();
+fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    let original_state = canvas_state.clone();
 
-    let moving_box_index = match boxes_guard.iter().position(|b| b.id == box_id) {
+    let moving_box_index = match canvas_state.boxes.iter().position(|b| b.id == box_id) {
         Some(index) => index,
-        None => return original_boxes,
+        None => return original_state,
     };
 
     let (delta_x, delta_y) = {
-        let moving_box_ref = &boxes_guard[moving_box_index];
+        let moving_box_ref = &canvas_state.boxes[moving_box_index];
         (new_x - moving_box_ref.x, new_y - moving_box_ref.y)
     };
 
     if delta_x == 0 && delta_y == 0 {
-        return original_boxes;
+        return original_state;
     }
 
     let mut to_update: HashMap<String, Box> = HashMap::new();
     let mut queue: VecDeque<String> = VecDeque::new();
 
     {
-        let mut moving_box = boxes_guard[moving_box_index].clone();
+        let mut moving_box = canvas_state.boxes[moving_box_index].clone();
         moving_box.x = new_x;
         moving_box.y = new_y;
         to_update.insert(box_id.clone(), moving_box);
@@ -103,7 +116,7 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> V
     while let Some(current_id) = queue.pop_front() {
         let moving_box = to_update.get(&current_id).unwrap().clone();
 
-        for other_box in boxes_guard.iter() {
+        for other_box in canvas_state.boxes.iter() {
             if to_update.contains_key(&other_box.id) {
                 continue;
             }
@@ -114,7 +127,7 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> V
                 new_other_box.y += delta_y;
 
                 if new_other_box.x < 0 || new_other_box.y < 0 {
-                    return original_boxes;
+                    return original_state;
                 }
 
                 queue.push_back(new_other_box.id.clone());
@@ -122,8 +135,8 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> V
             }
         }
     }
-
-    let mut final_boxes = original_boxes.clone();
+    
+    let mut final_boxes = original_state.boxes.clone();
     for b in final_boxes.iter_mut() {
         if let Some(updated_box) = to_update.get(&b.id) {
             *b = updated_box.clone();
@@ -136,33 +149,51 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> V
                 continue;
             }
             if do_boxes_intersect(updated_box, other_box) {
-                return original_boxes;
+                return original_state;
             }
         }
     }
 
-    *boxes_guard = final_boxes.clone();
-    final_boxes
+    canvas_state.boxes = final_boxes;
+    canvas_state.clone()
 }
 
 #[tauri::command]
-fn reset_boxes(state: State<AppState>) -> Vec<Box> {
-    let mut boxes = state.boxes.lock().unwrap();
-    boxes.clear();
-    vec![]
+fn add_connection(from: String, to: String, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+
+    if from == to {
+        return canvas_state.clone(); 
+    }
+
+    let existing_connections: HashSet<_> = canvas_state.connections.iter().map(|c| {
+        let mut pair = [c.from.as_str(), c.to.as_str()];
+        pair.sort();
+        (pair[0].to_string(), pair[1].to_string())
+    }).collect();
+
+    let mut new_pair = [from.as_str(), to.as_str()];
+    new_pair.sort();
+    let new_conn_tuple = (new_pair[0].to_string(), new_pair[1].to_string());
+
+    if !existing_connections.contains(&new_conn_tuple) {
+        canvas_state.connections.push(Connection { from, to });
+    }
+    
+    canvas_state.clone()
 }
 
 #[tauri::command]
-fn set_all_boxes(new_boxes: Vec<Box>, state: State<AppState>) -> Vec<Box> {
-    let mut boxes = state.boxes.lock().unwrap();
-    *boxes = new_boxes;
-    boxes.clone()
+fn load_new_state(new_state: CanvasState, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    *canvas_state = new_state;
+    canvas_state.clone()
 }
 
 #[tauri::command]
 fn get_bounding_box(state: State<AppState>) -> Option<BoundingBox> {
-    let boxes = state.boxes.lock().unwrap();
-    if boxes.is_empty() {
+    let canvas_state = state.canvas_state.lock().unwrap();
+    if canvas_state.boxes.is_empty() {
         return None;
     }
 
@@ -171,7 +202,7 @@ fn get_bounding_box(state: State<AppState>) -> Option<BoundingBox> {
     let mut max_x = i32::MIN;
     let mut max_y = i32::MIN;
 
-    for b in boxes.iter() {
+    for b in canvas_state.boxes.iter() {
         min_x = min_x.min(b.x);
         min_y = min_y.min(b.y);
         max_x = max_x.max(b.x + b.width);
@@ -206,7 +237,7 @@ pub fn run() {
     info!("Starting Kairo application...");
     
     let app_state = AppState {
-        boxes: Mutex::new(Vec::new()),
+        canvas_state: Mutex::new(CanvasState::default()),
     };
     
     tauri::Builder::default()
@@ -215,14 +246,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
-            get_all_boxes,
+            get_full_state,
             add_box,
             update_box_text,
             delete_box,
             move_box,
-            reset_boxes,
-            set_all_boxes,
+            load_new_state,
             get_bounding_box,
+            add_connection,
             greet
         ])
         .setup(|app| {

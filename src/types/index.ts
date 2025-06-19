@@ -7,6 +7,16 @@ export interface Box {
   text: string;
 }
 
+export interface Connection {
+  from: string;
+  to: string;
+}
+
+export interface CanvasState {
+  boxes: Box[];
+  connections: Connection[];
+}
+
 export const GRID_CONSTANTS = {
   gridSize: 20,
 };

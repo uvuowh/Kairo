@@ -1,77 +1,76 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Box } from '../types';
+import { Box, CanvasState, Connection } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 
-export const useBoxes = () => {
-    const [boxes, setBoxes] = useState<Box[]>([]);
+export const useCanvas = () => {
+    const [canvasState, setCanvasState] = useState<CanvasState>({ boxes: [], connections: [] });
     
     useEffect(() => {
-        const fetchBoxes = async () => {
+        const fetchState = async () => {
             try {
-                const initialBoxes = await invoke<Box[]>('get_all_boxes');
-                setBoxes(initialBoxes);
+                const initialState = await invoke<CanvasState>('get_full_state');
+                setCanvasState(initialState);
             } catch (e) {
-                console.error("Failed to fetch boxes from backend", e);
+                console.error("Failed to fetch state from backend", e);
             }
         };
-        fetchBoxes();
+        fetchState();
     }, []);
 
     const findBoxAt = useCallback((gridX: number, gridY: number) => {
-    return boxes.find(box =>
-      gridX >= box.x &&
-      gridX < box.x + box.width &&
-      gridY >= box.y &&
-      gridY < box.y + box.height
-    );
-    }, [boxes]);
-  
+        return canvasState.boxes.find(box => 
+            gridX >= box.x && 
+            gridX < box.x + box.width && 
+            gridY >= box.y && 
+            gridY < box.y + box.height
+        );
+    }, [canvasState.boxes]);
+    
     const updateBox = useCallback(async (id: string, text: string, width: number, height: number) => {
         try {
-            const updatedBoxes = await invoke<Box[]>('update_box_text', { id, text, width, height });
-            setBoxes(updatedBoxes);
+            const updatedState = await invoke<CanvasState>('update_box_text', { id, text, width, height });
+            setCanvasState(updatedState);
         } catch (e) {
             console.error("Failed to update box", e);
         }
     }, []);
-
+    
     const addBox = useCallback(async (box: Omit<Box, 'id' | 'text'>) => {
         try {
             const { x, y, width, height } = box;
-            const updatedBoxes = await invoke<Box[]>('add_box', { x, y, width, height });
-            setBoxes(updatedBoxes);
+            const updatedState = await invoke<CanvasState>('add_box', { x, y, width, height });
+            setCanvasState(updatedState);
         } catch (e) {
             console.error("Failed to add box", e);
         }
     }, []);
-
+    
     const deleteBox = useCallback(async (id: string) => {
         try {
-            const updatedBoxes = await invoke<Box[]>('delete_box', { id });
-            setBoxes(updatedBoxes);
+            const updatedState = await invoke<CanvasState>('delete_box', { id });
+            setCanvasState(updatedState);
         } catch (e) {
             console.error("Failed to delete box", e);
         }
     }, []);
 
-    // The moveBox logic will be handled in useInteraction, but the setter is here.
     const moveBoxes = useCallback(async (id: string, newX: number, newY: number) => {
         try {
-            const updatedBoxes = await invoke<Box[]>('move_box', { boxId: id, newX, newY });
-            setBoxes(updatedBoxes);
+            const updatedState = await invoke<CanvasState>('move_box', { boxId: id, newX, newY });
+            setCanvasState(updatedState);
         } catch (e) {
             console.error("Failed to move box", e);
         }
     }, []);
 
-    const resetBoxes = useCallback(async () => {
+    const addConnection = useCallback(async (from: string, to: string) => {
         try {
-            const updatedBoxes = await invoke<Box[]>('reset_boxes');
-            setBoxes(updatedBoxes);
+            const updatedState = await invoke<CanvasState>('add_connection', { from, to });
+            setCanvasState(updatedState);
         } catch (e) {
-            console.error("Failed to reset boxes", e);
+            console.error("Failed to add connection", e);
         }
     }, []);
 
-    return { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, resetBoxes };
+    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection };
 }; 

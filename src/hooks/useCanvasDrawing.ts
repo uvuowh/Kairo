@@ -1,5 +1,5 @@
 import { RefObject, useCallback, useEffect, useState } from 'react';
-import { Box, GRID_CONSTANTS } from '../types';
+import { Box, Connection, GRID_CONSTANTS } from '../types';
 import { BoxPreview } from './useInteraction';
 
 type Cursor = {
@@ -176,6 +176,7 @@ export const calculateSizeForText = (ctx: CanvasRenderingContext2D, text: string
 export const useCanvasDrawing = (
     canvasRef: RefObject<HTMLCanvasElement>, 
     boxes: Box[],
+    connections: Connection[],
     selectedBoxId: string | null,
     newBoxPreview: BoxPreview | null,
     cursor: Cursor | null,
@@ -260,6 +261,26 @@ export const useCanvasDrawing = (
             ctx.stroke();
         }
         
+        // Draw connections underneath boxes
+        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)";
+        ctx.lineWidth = 2 / zoom;
+        connections.forEach(conn => {
+            const fromBox = boxes.find(b => b.id === conn.from);
+            const toBox = boxes.find(b => b.id === conn.to);
+
+            if (fromBox && toBox) {
+                const fromX = (fromBox.x + fromBox.width / 2) * GRID_CONSTANTS.gridSize;
+                const fromY = (fromBox.y + fromBox.height / 2) * GRID_CONSTANTS.gridSize;
+                const toX = (toBox.x + toBox.width / 2) * GRID_CONSTANTS.gridSize;
+                const toY = (toBox.y + toBox.height / 2) * GRID_CONSTANTS.gridSize;
+                
+                ctx.beginPath();
+                ctx.moveTo(fromX, fromY);
+                ctx.lineTo(toX, toY);
+                ctx.stroke();
+            }
+        });
+
         // Draw all boxes
         boxes.forEach(box => {
             const rectX = box.x * GRID_CONSTANTS.gridSize;
@@ -347,7 +368,7 @@ export const useCanvasDrawing = (
         }
 
         ctx.restore();
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, hoveredDeleteButton, pan, zoom, isCursorVisible]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, hoveredDeleteButton, pan, zoom, isCursorVisible, connections]);
 
     return { draw, getCursorIndexFromClick };
 }; 

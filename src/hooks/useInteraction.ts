@@ -22,7 +22,8 @@ export const useInteraction = (
     pan: { x: number, y: number },
     setPan: React.Dispatch<React.SetStateAction<{ x: number; y: number; }>>,
     zoom: number,
-    moveBoxes: (id: string, newX: number, newY: number) => Promise<void>
+    moveBoxes: (id: string, newX: number, newY: number) => Promise<void>,
+    addConnection: (from: string, to: string) => Promise<void>
 ) => {
     const mouseDownRef = useRef<MouseDownState | null>(null);
     const initialPanRef = useRef({ x: 0, y: 0 });
@@ -49,7 +50,21 @@ export const useInteraction = (
     }, [pan, zoom]);
 
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (e.button === 1 || e.button === 2) { // Middle or Right mouse button
+        const rect = e.currentTarget.getBoundingClientRect();
+        const { worldX, worldY } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+        const gridX = Math.floor(worldX / GRID_CONSTANTS.gridSize);
+        const gridY = Math.floor(worldY / GRID_CONSTANTS.gridSize);
+        
+        const clickedBox = findBoxAt(gridX, gridY);
+
+        if (e.button === 2) { // Right mouse button
+            if (selectedBoxId && clickedBox && clickedBox.id !== selectedBoxId) {
+                addConnection(selectedBoxId, clickedBox.id);
+            }
+            return;
+        }
+        
+        if (e.button === 1) { // Middle mouse button for panning
             setIsPanning(true);
             initialPanRef.current = pan; 
             mouseDownRef.current = {
@@ -63,16 +78,8 @@ export const useInteraction = (
             return;
         }
 
-        const rect = e.currentTarget.getBoundingClientRect();
-        const { worldX, worldY } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-        
-        const gridX = Math.floor(worldX / GRID_CONSTANTS.gridSize);
-        const gridY = Math.floor(worldY / GRID_CONSTANTS.gridSize);
-
         const now = Date.now();
         const DOUBLE_CLICK_THRESHOLD = 300; 
-
-        const clickedBox = findBoxAt(gridX, gridY);
 
         if (hoveredDeleteButton) {
             onBoxDelete(hoveredDeleteButton);
@@ -235,6 +242,18 @@ export const useInteraction = (
         setNewBoxPreview(null);
         mouseDownRef.current = null;
     };
+
+    const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const { worldX, worldY } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+        const gridX = Math.floor(worldX / GRID_CONSTANTS.gridSize);
+        const gridY = Math.floor(worldY / GRID_CONSTANTS.gridSize);
+        const clickedBox = findBoxAt(gridX, gridY);
+
+        if (selectedBoxId && clickedBox && clickedBox.id !== selectedBoxId) {
+            e.preventDefault(); // Prevent context menu ONLY when creating a connection
+        }
+    };
     
     useEffect(() => {
         // Cleanup on unmount
@@ -253,6 +272,7 @@ export const useInteraction = (
         handleMouseMove,
         handleMouseUp,
         hoveredDeleteButton,
-        isPanning
+        isPanning,
+        handleContextMenu
     };
 }; 
