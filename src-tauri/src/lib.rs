@@ -159,7 +159,7 @@ pub fn run() {
     let app_state = AppState {
         boxes: Mutex::new(Vec::new()),
     };
-
+    
     tauri::Builder::default()
         .manage(app_state)
         .plugin(tauri_plugin_opener::init())

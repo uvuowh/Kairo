@@ -18,14 +18,14 @@ export const useBoxes = () => {
     }, []);
 
     const findBoxAt = useCallback((gridX: number, gridY: number) => {
-        return boxes.find(box => 
-            gridX >= box.x && 
-            gridX < box.x + box.width && 
-            gridY >= box.y && 
-            gridY < box.y + box.height
-        );
+    return boxes.find(box =>
+      gridX >= box.x &&
+      gridX < box.x + box.width &&
+      gridY >= box.y &&
+      gridY < box.y + box.height
+    );
     }, [boxes]);
-    
+  
     const updateBox = useCallback(async (id: string, text: string, width: number, height: number) => {
         try {
             const updatedBoxes = await invoke<Box[]>('update_box_text', { id, text, width, height });
@@ -34,7 +34,7 @@ export const useBoxes = () => {
             console.error("Failed to update box", e);
         }
     }, []);
-    
+
     const addBox = useCallback(async (box: Omit<Box, 'id' | 'text'>) => {
         try {
             const { x, y, width, height } = box;
@@ -44,7 +44,7 @@ export const useBoxes = () => {
             console.error("Failed to add box", e);
         }
     }, []);
-    
+
     const deleteBox = useCallback(async (id: string) => {
         try {
             const updatedBoxes = await invoke<Box[]>('delete_box', { id });

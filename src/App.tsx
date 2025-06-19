@@ -31,6 +31,7 @@ function App() {
     handleMouseUp,
     hoveredDeleteButton,
     isPanning,
+    optimisticDragPosition
   } = useInteraction(
     boxes,
     (boxes: Box[]) => setBoxes(boxes),
@@ -42,7 +43,7 @@ function App() {
             const newIndex = getCursorIndexFromClick(box, worldX, worldY);
             setCursor({ boxId: box.id, index: newIndex });
         } else {
-            setCursor({ boxId: box.id, index: box.text.length });
+        setCursor({ boxId: box.id, index: box.text.length });
         }
     },
     (box: Box, mouseX: number, mouseY: number) => {
@@ -68,7 +69,8 @@ function App() {
     cursor,
     hoveredDeleteButton,
     pan,
-    zoom
+    zoom,
+    optimisticDragPosition
   );
 
   useEffect(() => {
@@ -118,7 +120,7 @@ function App() {
         const dy = targetPan.current.y - currentPan.y;
         if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
             needsToContinue = true;
-            return { x: currentPan.x + dx * LERP_FACTOR, y: currentPan.y + dy * LERP_FACTOR };
+        return { x: currentPan.x + dx * LERP_FACTOR, y: currentPan.y + dy * LERP_FACTOR };
         }
         return targetPan.current;
       });
@@ -126,7 +128,7 @@ function App() {
       draw(); // Redraw on each frame of the animation for smoothness
 
       if (needsToContinue) {
-        animationFrameId.current = requestAnimationFrame(animate);
+      animationFrameId.current = requestAnimationFrame(animate);
       } else {
         animationFrameId.current = null;
       }

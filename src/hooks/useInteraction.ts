@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Box, MouseDownState, GRID_CONSTANTS } from '../types';
 import { isPreviewCollidingWithAny, doBoxesIntersect } from '../utils/collision';
 
@@ -7,6 +7,60 @@ export interface BoxPreview {
     y: number;
     width: number;
     height: number;
+}
+
+function useThrottledCallback<A extends any[]>(
+  callback: (...args: A) => void,
+  delay: number
+) {
+  const callbackRef = useRef(callback);
+  const timeoutRef = useRef<number | null>(null);
+  const lastCallTimeRef = useRef(0);
+  const pendingArgsRef = useRef<A | null>(null);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  const throttledCallback = useCallback((...args: A) => {
+    const now = Date.now();
+    const remaining = delay - (now - lastCallTimeRef.current);
+
+    pendingArgsRef.current = args;
+
+    if (remaining <= 0) {
+      lastCallTimeRef.current = now;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      callbackRef.current(...pendingArgsRef.current);
+      pendingArgsRef.current = null;
+    } else if (!timeoutRef.current) {
+      timeoutRef.current = window.setTimeout(() => {
+        lastCallTimeRef.current = Date.now();
+        timeoutRef.current = null;
+        if (pendingArgsRef.current) {
+          callbackRef.current(...pendingArgsRef.current);
+          pendingArgsRef.current = null;
+        }
+      }, remaining);
+    }
+  }, [delay]);
+
+  useEffect(() => () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+  }, []);
+
+  return throttledCallback;
+}
+
+export interface OptimisticDragPosition {
+    boxId: string;
+    x: number;
+    y: number;
 }
 
 export const useInteraction = (
@@ -34,10 +88,13 @@ export const useInteraction = (
     const [newBoxPreview, setNewBoxPreview] = useState<BoxPreview | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
     const [isPanning, setIsPanning] = useState(false);
+    const [optimisticDragPosition, setOptimisticDragPosition] = useState<OptimisticDragPosition | null>(null);
 
     const lastClickTime = useRef(0);
     
     const selectedBox = boxes.find(b => b.id === selectedBoxId);
+
+    const throttledMoveBoxes = useThrottledCallback(moveBoxes, 32); // Sync with backend at ~30fps
 
     const screenToWorld = useCallback((screenX: number, screenY: number) => {
         const worldX = (screenX - pan.x) / zoom;
@@ -172,17 +229,24 @@ export const useInteraction = (
             const newGridX = Math.round((worldX / GRID_CONSTANTS.gridSize) - draggingBox.offsetX);
             const newGridY = Math.round((worldY / GRID_CONSTANTS.gridSize) - draggingBox.offsetY);
 
-            // Debounce or throttle this call if it's too frequent
-            moveBoxes(draggingBox.boxId, newGridX, newGridY);
+            setOptimisticDragPosition({ boxId: draggingBox.boxId, x: newGridX, y: newGridY });
+            throttledMoveBoxes(draggingBox.boxId, newGridX, newGridY);
         }
     };
 
-    const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+    const handleMouseUp = async (e: React.MouseEvent<HTMLDivElement>) => {
         if (isPanning) {
             setIsPanning(false);
             mouseDownRef.current = null;
             return;
         }
+
+        // Final sync after dragging
+        if (draggingBox && optimisticDragPosition) {
+            await moveBoxes(draggingBox.boxId, optimisticDragPosition.x, optimisticDragPosition.y);
+        }
+        setOptimisticDragPosition(null);
+
 
         const DRAG_THRESHOLD = 5;
         const now = Date.now();
@@ -220,6 +284,7 @@ export const useInteraction = (
         handleMouseMove,
         handleMouseUp,
         hoveredDeleteButton,
-        isPanning
+        isPanning,
+        optimisticDragPosition
     };
 }; 
