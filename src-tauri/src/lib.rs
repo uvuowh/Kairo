@@ -7,6 +7,14 @@ use tauri::State;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+struct BoundingBox {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct Box {
     id: String,
     x: i32,
@@ -138,6 +146,47 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> V
 }
 
 #[tauri::command]
+fn reset_boxes(state: State<AppState>) -> Vec<Box> {
+    let mut boxes = state.boxes.lock().unwrap();
+    boxes.clear();
+    vec![]
+}
+
+#[tauri::command]
+fn set_all_boxes(new_boxes: Vec<Box>, state: State<AppState>) -> Vec<Box> {
+    let mut boxes = state.boxes.lock().unwrap();
+    *boxes = new_boxes;
+    boxes.clone()
+}
+
+#[tauri::command]
+fn get_bounding_box(state: State<AppState>) -> Option<BoundingBox> {
+    let boxes = state.boxes.lock().unwrap();
+    if boxes.is_empty() {
+        return None;
+    }
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for b in boxes.iter() {
+        min_x = min_x.min(b.x);
+        min_y = min_y.min(b.y);
+        max_x = max_x.max(b.x + b.width);
+        max_y = max_y.max(b.y + b.height);
+    }
+
+    Some(BoundingBox {
+        x: min_x,
+        y: min_y,
+        width: max_x - min_x,
+        height: max_y - min_y,
+    })
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     debug!("Greet command called with name: {}", name);
     
@@ -171,6 +220,9 @@ pub fn run() {
             update_box_text,
             delete_box,
             move_box,
+            reset_boxes,
+            set_all_boxes,
+            get_bounding_box,
             greet
         ])
         .setup(|app| {

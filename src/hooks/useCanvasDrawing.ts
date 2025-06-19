@@ -1,204 +1,353 @@
-import { useRef, useCallback, useEffect } from "react";
-import { Box, GRID_CONSTANTS } from "../types";
-import { OptimisticDragPosition } from "./useInteraction";
+import { RefObject, useCallback, useEffect, useState } from 'react';
+import { Box, GRID_CONSTANTS } from '../types';
+import { BoxPreview } from './useInteraction';
 
-function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number, panX: number, panY: number) {
+type Cursor = {
+    boxId: string;
+    index: number;
+};
+
+const FONT_SIZE = 16;
+const FONT_FAMILY = '"Courier New", Courier, monospace';
+const PADDING = 2;
+const LINE_HEIGHT = GRID_CONSTANTS.gridSize;
+export const DELETE_HANDLE_RADIUS = 4;
+
+const getCharWidth = (char: string): number => {
+    // Half-width for ASCII letters, numbers, and common punctuation
+    if (/[a-zA-Z0-9]/.test(char) || /[\s.,!?;:'"(){}[\]<>\-_+=@#$%^&*|\\/]/.test(char)) {
+        return GRID_CONSTANTS.gridSize / 2;
+    }
+    // Full-width for CJK characters and full-width symbols
+    else if (/[\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]/.test(char)) {
+        return GRID_CONSTANTS.gridSize;
+    }
+    // Default other symbols to full-width
+    else {
+        return GRID_CONSTANTS.gridSize;
+    }
+};
+
+const calculateCustomTextWidth = (text: string): number => {
+    let width = 0;
+    for (const char of text) {
+        width += getCharWidth(char);
+    }
+    return width;
+};
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+    if (width < 2 * radius) radius = width / 2;
+    if (height < 2 * radius) radius = height / 2;
     ctx.beginPath();
-    const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)";
-    ctx.lineWidth = 1;
-
-    const gridSize = GRID_CONSTANTS.gridSize;
-    const startX = Math.floor(panX / gridSize) * gridSize;
-    const startY = Math.floor(panY / gridSize) * gridSize;
-
-    for (let x = startX; x < panX + width; x += gridSize) {
-        ctx.moveTo(x, panY);
-        ctx.lineTo(x, panY + height);
-    }
-    for (let y = startY; y < panY + height; y += gridSize) {
-        ctx.moveTo(panX, y);
-        ctx.lineTo(panX + width, y);
-    }
-    ctx.stroke();
+    ctx.moveTo(x + radius, y);
+    ctx.arcTo(x + width, y, x + width, y + height, radius);
+    ctx.arcTo(x + width, y + height, x, y + height, radius);
+    ctx.arcTo(x, y + height, x, y, radius);
+    ctx.arcTo(x, y, x + width, y, radius);
+    ctx.closePath();
 }
 
-export function calculateSizeForText(ctx: CanvasRenderingContext2D, text: string) {
-    const lines = text.split('\n');
-    let maxWidth = 0;
-    lines.forEach(line => {
-        const width = ctx.measureText(line).width;
-        if (width > maxWidth) {
-            maxWidth = width;
+const getCursorPixelPosition = (
+    ctx: CanvasRenderingContext2D,
+    box: Box,
+    charIndex: number
+) => {
+    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    const textBeforeCursor = box.text.substring(0, charIndex);
+    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize;
+    const lines = breakTextIntoLines(ctx, textBeforeCursor, boxWidthInPixels);
+    
+    const cursorLineIndex = lines.length > 0 ? lines.length - 1 : 0;
+    const textOnCursorLine = lines[cursorLineIndex] || '';
+    
+    const pixelX = box.x * GRID_CONSTANTS.gridSize + calculateCustomTextWidth(textOnCursorLine);
+    const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
+    return { pixelX, pixelY, cursorLineIndex };
+};
+
+const renderTextInBox = (
+    ctx: CanvasRenderingContext2D,
+    box: Box,
+    isDarkMode: boolean
+) => {
+    ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    ctx.textBaseline = 'top';
+    
+    const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize;
+    const lines = breakTextIntoLines(ctx, box.text, boxWidthInPixels);
+
+    lines.forEach((line, lineIndex) => {
+        if ((lineIndex + 1) * LINE_HEIGHT > box.height * GRID_CONSTANTS.gridSize) return;
+        let drawX = box.x * GRID_CONSTANTS.gridSize;
+        const drawY = box.y * GRID_CONSTANTS.gridSize + (lineIndex * LINE_HEIGHT) + PADDING;
+        
+        for (const char of line) {
+            ctx.fillText(char, drawX, drawY);
+            drawX += getCharWidth(char);
         }
     });
+};
 
-    const padding = 10;
-    const widthInGrids = Math.max(2, Math.ceil((maxWidth + 2 * padding) / GRID_CONSTANTS.gridSize));
-    const heightInGrids = Math.max(1, Math.ceil((lines.length * GRID_CONSTANTS.fontSize + 2 * padding) / GRID_CONSTANTS.gridSize));
+// Re-introducing a simplified and correct version of this helper.
+const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidthInPixels: number): string[] => {
+    const allLines: string[] = [];
+    if (!text && text !== '') return allLines;
+
+    const hardLines = text.split('\n');
+
+    for (const hardLine of hardLines) {
+        if (!hardLine) {
+            allLines.push('');
+            continue;
+        }
+        
+        let currentLine = '';
+        const words = hardLine.split(' ');
+        for (let i = 0; i < words.length; i++) {
+            const word = words[i];
+
+            // First, check if the word itself is wider than the box.
+            if (calculateCustomTextWidth(word) > boxWidthInPixels) {
+                // If so, it needs to be broken up character by character.
+                // But first, push whatever was on the current line.
+                if (currentLine) {
+                    allLines.push(currentLine);
+                }
+                currentLine = ''; // Start fresh for the broken word.
+
+                let tempLine = '';
+                for (const char of word) {
+                    const lineWithChar = tempLine + char;
+                    if (calculateCustomTextWidth(lineWithChar) > boxWidthInPixels) {
+                        allLines.push(tempLine);
+                        tempLine = char;
+                    } else {
+                        tempLine = lineWithChar;
+                    }
+                }
+                currentLine = tempLine; // The remainder of the broken word.
+            } else {
+                // If the word fits on a line by itself, see if it fits on the current one.
+                const lineWithWord = currentLine ? `${currentLine} ${word}` : word;
+                if (calculateCustomTextWidth(lineWithWord) > boxWidthInPixels) {
+                    // Doesn't fit, so push the old line and start a new one.
+                    allLines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    // Fits, so add it to the current line.
+                    currentLine = lineWithWord;
+                }
+            }
+        }
+        allLines.push(currentLine);
+    }
+
+    return allLines;
+};
+
+export const calculateSizeForText = (ctx: CanvasRenderingContext2D, text: string): { width: number, height: number } => {
+    if (!text) {
+        return { width: 2, height: 1 }; // Default size for empty box
+    }
+
+    ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
+    const lines = text.split('\n');
+    let maxLineWidth = 0;
+    
+    for (const line of lines) {
+        const lineWidth = calculateCustomTextWidth(line);
+        if (lineWidth > maxLineWidth) {
+            maxLineWidth = lineWidth;
+        }
+    }
+    
+    const widthInGrids = Math.max(2, Math.ceil(maxLineWidth / GRID_CONSTANTS.gridSize));
+    
+    // Now, calculate height based on wrapping with the calculated width
+    const boxWidthInPixels = widthInGrids * GRID_CONSTANTS.gridSize;
+    const wrappedLines = breakTextIntoLines(ctx, text, boxWidthInPixels);
+    const heightInGrids = Math.max(1, wrappedLines.length);
 
     return { width: widthInGrids, height: heightInGrids };
-}
-
+};
 
 export const useCanvasDrawing = (
-    canvasRef: React.RefObject<HTMLCanvasElement>,
+    canvasRef: RefObject<HTMLCanvasElement>, 
     boxes: Box[],
     selectedBoxId: string | null,
-    newBoxPreview: { x: number; y: number; width: number; height: number; } | null,
-    cursor: { boxId: string; index: number; } | null,
+    newBoxPreview: BoxPreview | null,
+    cursor: Cursor | null,
     hoveredDeleteButton: string | null,
-    pan: { x: number; y: number; },
-    zoom: number,
-    optimisticDragPosition: OptimisticDragPosition | null
+    pan: { x: number, y: number },
+    zoom: number
 ) => {
-    const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
+    const [isCursorVisible, setIsCursorVisible] = useState(true);
 
     useEffect(() => {
-        if (canvasRef.current) {
-            ctxRef.current = canvasRef.current.getContext("2d");
+        const interval = setInterval(() => setIsCursorVisible(v => !v), 500);
+        return () => clearInterval(interval);
+    }, []);
+
+    const getCursorIndexFromClick = useCallback((box: Box, clickPixelX: number, clickPixelY: number): number => {
+        const canvas = canvasRef.current;
+        if (!canvas) return 0;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return 0;
+
+        let closestIndex = 0;
+        let minDistance = Infinity;
+
+        for (let i = 0; i <= box.text.length; i++) {
+            const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, i);
+            // Compare distance to the center of the character's clickable area
+            const dist = Math.pow(clickPixelX - pixelX, 2) + Math.pow(clickPixelY - (pixelY + (FONT_SIZE / 2)), 2);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestIndex = i;
+            }
         }
+        return closestIndex;
     }, [canvasRef]);
 
     const draw = useCallback(() => {
-        if (!canvasRef.current) return;
         const canvas = canvasRef.current;
-        const ctx = ctxRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
+        // Handle High DPI displays
         const dpr = window.devicePixelRatio || 1;
+
         if (canvas.width !== canvas.clientWidth * dpr || canvas.height !== canvas.clientHeight * dpr) {
             canvas.width = canvas.clientWidth * dpr;
             canvas.height = canvas.clientHeight * dpr;
-            ctx.scale(dpr, dpr);
         }
-        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        ctx.fillStyle = isDarkMode ? '#1a1a1a' : '#f0f0f0';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         ctx.save();
-        ctx.translate(pan.x, pan.y);
-        ctx.scale(zoom, zoom);
+        ctx.scale(dpr * zoom, dpr * zoom);
+        ctx.translate(pan.x / zoom, pan.y / zoom);
 
-        drawGrid(ctx, canvas.width / zoom, canvas.height / zoom, -pan.x / zoom, -pan.y / zoom);
+        const viewLeft = -pan.x / zoom;
+        const viewTop = -pan.y / zoom;
+        const viewWidth = canvas.clientWidth / zoom;
+        const viewHeight = canvas.clientHeight / zoom;
+        
+        ctx.clearRect(viewLeft, viewTop, viewWidth, viewHeight);
 
+        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+        // Draw grid
+        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
+        ctx.lineWidth = 1 / zoom;
+
+        const gridStartX = Math.floor(viewLeft / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridEndX = Math.ceil((viewLeft + viewWidth) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridStartY = Math.floor(viewTop / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridEndY = Math.ceil((viewTop + viewHeight) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+
+        for (let x = gridStartX; x < gridEndX; x += GRID_CONSTANTS.gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(x, viewTop);
+            ctx.lineTo(x, viewTop + viewHeight);
+            ctx.stroke();
+        }
+        for (let y = gridStartY; y < gridEndY; y += GRID_CONSTANTS.gridSize) {
+            ctx.beginPath();
+            ctx.moveTo(viewLeft, y);
+            ctx.lineTo(viewLeft + viewWidth, y);
+            ctx.stroke();
+        }
+        
+        // Draw all boxes
         boxes.forEach(box => {
-            let drawX = box.x;
-            let drawY = box.y;
-
-            if (optimisticDragPosition && optimisticDragPosition.boxId === box.id) {
-                drawX = optimisticDragPosition.x;
-                drawY = optimisticDragPosition.y;
-            }
-
-            if (box.id === selectedBoxId) {
-                ctx.shadowColor = 'rgba(118, 118, 255, 0.9)';
-                ctx.shadowBlur = 10;
-            } else {
-                ctx.shadowColor = 'rgba(0,0,0,0.5)';
-                ctx.shadowBlur = 5;
-                ctx.shadowOffsetY = 2;
-            }
-
-            ctx.fillStyle = "#333";
-            ctx.strokeStyle = box.id === selectedBoxId ? 'rgba(118, 118, 255, 0.9)' : "#555";
-            ctx.lineWidth = 1;
-            
-            const rectX = drawX * GRID_CONSTANTS.gridSize;
-            const rectY = drawY * GRID_CONSTANTS.gridSize;
+            const rectX = box.x * GRID_CONSTANTS.gridSize;
+            const rectY = box.y * GRID_CONSTANTS.gridSize;
             const rectW = box.width * GRID_CONSTANTS.gridSize;
             const rectH = box.height * GRID_CONSTANTS.gridSize;
-            
-            ctx.fillRect(rectX, rectY, rectW, rectH);
-            ctx.strokeRect(rectX, rectY, rectW, rectH);
-            
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
+            const borderRadius = 4;
 
-            ctx.fillStyle = "#FFF";
-            ctx.font = `${GRID_CONSTANTS.fontSize}px sans-serif`;
-            ctx.textBaseline = "top";
-            
-            const padding = 10;
-            
-            ctx.fillText(box.text, rectX + padding, rectY + padding, rectW - 2 * padding);
-            
-            if (cursor && cursor.boxId === box.id && selectedBoxId === box.id) {
-                const textBeforeCursor = box.text.substring(0, cursor.index);
-                const cursorX = ctx.measureText(textBeforeCursor).width;
-                
-                ctx.fillStyle = "#FFF";
-                ctx.fillRect(
-                    rectX + padding + cursorX,
-                    rectY + padding,
-                    2,
-                    GRID_CONSTANTS.fontSize
-                );
-            }
+            // Simple culling
+            if (rectX + rectW < viewLeft || rectX > viewLeft + viewWidth || rectY + rectH < viewTop || rectY > viewTop + viewHeight) {
+                // Box is outside the viewport
+            } else {
+                ctx.fillStyle = isDarkMode ? "rgba(40, 40, 40, 0.8)" : "rgba(255, 255, 255, 0.8)";
+                ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
+                ctx.lineWidth = 1;
 
-            if (box.id === selectedBoxId) {
-                const handleSize = 8;
-                const deleteHandleCenterX = rectX + rectW;
-                const deleteHandleCenterY = rectY;
-
-                ctx.beginPath();
-                ctx.arc(deleteHandleCenterX, deleteHandleCenterY, handleSize, 0, 2 * Math.PI);
-                ctx.fillStyle = hoveredDeleteButton === box.id ? 'red' : 'darkred';
+                roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
                 ctx.fill();
-
-                ctx.strokeStyle = "white";
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(deleteHandleCenterX - 3, deleteHandleCenterY - 3);
-                ctx.lineTo(deleteHandleCenterX + 3, deleteHandleCenterY + 3);
-                ctx.moveTo(deleteHandleCenterX + 3, deleteHandleCenterY - 3);
-                ctx.lineTo(deleteHandleCenterX - 3, deleteHandleCenterY + 3);
                 ctx.stroke();
+
+                // Draw grid inside the box
+                ctx.save();
+                ctx.clip(); // Clip to the rounded rect path defined above
+
+                ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)";
+                ctx.lineWidth = 1 / zoom;
+
+                // Vertical lines
+                for (let i = 1; i < box.width; i++) {
+                    const x = rectX + i * GRID_CONSTANTS.gridSize;
+                    ctx.beginPath();
+                    ctx.moveTo(x, rectY);
+                    ctx.lineTo(x, rectY + rectH);
+                    ctx.stroke();
+                }
+                // Horizontal lines
+                for (let i = 1; i < box.height; i++) {
+                    const y = rectY + i * GRID_CONSTANTS.gridSize;
+                    ctx.beginPath();
+                    ctx.moveTo(rectX, y);
+                    ctx.lineTo(rectX + rectW, y);
+                    ctx.stroke();
+                }
+                ctx.restore();
+
+                renderTextInBox(ctx, box, isDarkMode);
+
+                if (selectedBoxId === box.id) {
+                    ctx.strokeStyle = '#007AFF'; // A nice blue for selection
+                    ctx.lineWidth = 2 / zoom;
+                    roundRect(ctx, rectX - 1, rectY - 1, rectW + 2, rectH + 2, borderRadius + 1);
+                    ctx.stroke();
+
+                    // Draw delete handle
+                    const deleteHandleCenterX = rectX + rectW;
+                    const deleteHandleCenterY = rectY;
+                    ctx.beginPath();
+                    ctx.arc(deleteHandleCenterX, deleteHandleCenterY, DELETE_HANDLE_RADIUS / zoom, 0, 2 * Math.PI);
+                    ctx.fillStyle = hoveredDeleteButton === box.id ? '#FF453A' : '#FF9500'; // Red when hovered, orange otherwise
+                    ctx.fill();
+                }
             }
         });
 
+        if (cursor && cursor.boxId === selectedBoxId && isCursorVisible) {
+            const box = boxes.find(b => b.id === cursor.boxId);
+            if (box) {
+                const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
+                ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+                ctx.fillRect(pixelX, pixelY, 1 / zoom, FONT_SIZE);
+            }
+        }
+
         if (newBoxPreview) {
-            ctx.fillStyle = "rgba(118, 118, 255, 0.3)";
-            ctx.fillRect(
+            ctx.strokeStyle = "rgba(0, 100, 255, 0.8)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]);
+            ctx.strokeRect(
                 newBoxPreview.x * GRID_CONSTANTS.gridSize,
                 newBoxPreview.y * GRID_CONSTANTS.gridSize,
                 newBoxPreview.width * GRID_CONSTANTS.gridSize,
                 newBoxPreview.height * GRID_CONSTANTS.gridSize
             );
+            ctx.setLineDash([]);
         }
 
         ctx.restore();
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, hoveredDeleteButton, pan, zoom, isCursorVisible]);
 
-    }, [boxes, selectedBoxId, newBoxPreview, cursor, pan, zoom, hoveredDeleteButton, optimisticDragPosition, canvasRef]);
-    
-    const getCursorIndexFromClick = useCallback((box: Box, worldX: number, worldY: number) => {
-        if (!ctxRef.current) return 0;
-        const ctx = ctxRef.current;
-        ctx.font = `${GRID_CONSTANTS.fontSize}px sans-serif`;
-        
-        let text = box.text;
-        
-        const rectX = box.x * GRID_CONSTANTS.gridSize;
-        const padding = 10;
-        const relativeX = worldX - (rectX + padding);
-
-        if (relativeX < 0) return 0;
-
-        for (let i = 1; i <= text.length; i++) {
-            let subtext = text.substring(0, i);
-            let subwidth = ctx.measureText(subtext).width;
-            if (relativeX < subwidth) {
-                let prevSubwidth = ctx.measureText(text.substring(0,i-1)).width;
-                if (relativeX - prevSubwidth < subwidth - relativeX) {
-                    return i-1;
-                }
-                return i;
-            }
-        }
-        return text.length;
-    }, []);
-
-
-    return { draw, calculateSizeForText, getCursorIndexFromClick };
+    return { draw, getCursorIndexFromClick };
 }; 

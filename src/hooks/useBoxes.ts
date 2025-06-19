@@ -64,5 +64,14 @@ export const useBoxes = () => {
         }
     }, []);
 
-    return { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes };
+    const resetBoxes = useCallback(async () => {
+        try {
+            const updatedBoxes = await invoke<Box[]>('reset_boxes');
+            setBoxes(updatedBoxes);
+        } catch (e) {
+            console.error("Failed to reset boxes", e);
+        }
+    }, []);
+
+    return { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, resetBoxes };
 }; 

@@ -6,6 +6,14 @@ import { useInteraction } from "./hooks/useInteraction";
 import { useCanvasDrawing, calculateSizeForText } from "./hooks/useCanvasDrawing";
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { open, save } from '@tauri-apps/plugin-dialog';
+import { invoke } from "@tauri-apps/api/core";
+
+interface BoundingBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -20,7 +28,7 @@ function App() {
   
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
-  const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes } = useBoxes();
+  const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, resetBoxes } = useBoxes();
   
   const {
     selectedBoxId,
@@ -31,7 +39,6 @@ function App() {
     handleMouseUp,
     hoveredDeleteButton,
     isPanning,
-    optimisticDragPosition
   } = useInteraction(
     boxes,
     (boxes: Box[]) => setBoxes(boxes),
@@ -69,8 +76,7 @@ function App() {
     cursor,
     hoveredDeleteButton,
     pan,
-    zoom,
-    optimisticDragPosition
+    zoom
   );
 
   useEffect(() => {
@@ -137,13 +143,19 @@ function App() {
   };
 
   const handleWheel = (e: React.WheelEvent) => {
+    // Prevent wheel actions while panning with the mouse
+    if (isPanning) {
+        return;
+    }
     e.preventDefault();
 
     if (e.ctrlKey) {
-        // Zooming
-        const zoomSpeed = 0.005;
+        // --- Zoom Logic (Pinch Gesture) ---
+        // This is always animated for a smooth feel.
+        const zoomSensitivity = 0.005;
         const oldTargetZoom = targetZoom.current;
-        const newTargetZoom = Math.max(0.1, Math.min(5, oldTargetZoom - e.deltaY * zoomSpeed));
+        const zoomMultiplier = Math.exp(-e.deltaY * zoomSensitivity);
+        const newTargetZoom = Math.max(0.1, Math.min(5, oldTargetZoom * zoomMultiplier));
         targetZoom.current = newTargetZoom;
         
         const rect = e.currentTarget.getBoundingClientRect();
@@ -152,15 +164,33 @@ function App() {
 
         const zoomRatio = newTargetZoom / oldTargetZoom;
         
-        // Apply pan delta to keep mouse position constant
         targetPan.current.x = mouseX - (mouseX - targetPan.current.x) * zoomRatio;
         targetPan.current.y = mouseY - (mouseY - targetPan.current.y) * zoomRatio;
+        startAnimation();
     } else {
-        // Panning with wheel, should be smooth
-        targetPan.current.x -= e.deltaX;
-        targetPan.current.y -= e.deltaY;
+        // --- Pan Logic (Two-finger scroll or Mouse Wheel) ---
+        // e.deltaMode === 0 means pixels (trackpads, precision mice)
+        // e.deltaMode === 1 means lines (traditional mouse wheel)
+        const isPixelBasedScroll = e.deltaMode === 0;
+
+        if (isPixelBasedScroll) {
+            // For trackpads, apply pan directly for a 1:1 feel.
+            setPan(prevPan => {
+                const newPan = {
+                    x: prevPan.x - e.deltaX,
+                    y: prevPan.y - e.deltaY
+                };
+                // Also update the animation target to prevent conflicts.
+                targetPan.current = newPan;
+                return newPan;
+            });
+        } else {
+            // For traditional mouse wheels, use smooth animation.
+            targetPan.current.x -= e.deltaX;
+            targetPan.current.y -= e.deltaY;
+            startAnimation();
+        }
     }
-    startAnimation();
   };
 
   const handleTextInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -217,7 +247,8 @@ function App() {
               const loadedBoxes: Box[] = JSON.parse(content);
               // Basic validation
               if (Array.isArray(loadedBoxes)) {
-                setBoxes(loadedBoxes);
+                const syncedBoxes = await invoke<Box[]>('set_all_boxes', { newBoxes: loadedBoxes });
+                setBoxes(syncedBoxes);
               } else {
                 console.error("Invalid file format");
               }
@@ -228,11 +259,98 @@ function App() {
       }
   };
 
+  const handleResetView = async () => {
+    if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+    }
+    
+    const boundingBox = await invoke<BoundingBox | null>('get_bounding_box');
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (!boundingBox || boundingBox.width === 0 || boundingBox.height === 0) {
+        targetPan.current = { x: 0, y: 0 };
+        targetZoom.current = 1;
+        startAnimation();
+        return;
+    }
+
+    const PADDING_PIXELS = 40;
+    const viewportWidth = canvas.clientWidth;
+    const viewportHeight = canvas.clientHeight;
+
+    if (viewportWidth <= PADDING_PIXELS * 2 || viewportHeight <= PADDING_PIXELS * 2) return;
+
+    const contentWidth = boundingBox.width * GRID_CONSTANTS.gridSize;
+    const contentHeight = boundingBox.height * GRID_CONSTANTS.gridSize;
+
+    const finalZoom = Math.min(
+        (viewportWidth - PADDING_PIXELS * 2) / contentWidth,
+        (viewportHeight - PADDING_PIXELS * 2) / contentHeight,
+        5
+    );
+    
+    const contentCenterX = (boundingBox.x * GRID_CONSTANTS.gridSize) + contentWidth / 2;
+    const contentCenterY = (boundingBox.y * GRID_CONSTANTS.gridSize) + contentHeight / 2;
+
+    const finalPan = {
+        x: (viewportWidth / 2) - (contentCenterX * finalZoom),
+        y: (viewportHeight / 2) - (contentCenterY * finalZoom)
+    };
+
+    // --- Custom Animation Logic ---
+    const startPan = pan;
+    const startZoom = zoom;
+    const animationStartTime = Date.now();
+    const animationDuration = 500; // in ms
+
+    const startContentScreenX = (contentCenterX * startZoom) + startPan.x;
+    const startContentScreenY = (contentCenterY * startZoom) + startPan.y;
+    const endContentScreenX = viewportWidth / 2;
+    const endContentScreenY = viewportHeight / 2;
+
+    const animate = () => {
+        const elapsedTime = Date.now() - animationStartTime;
+        const progress = Math.min(elapsedTime / animationDuration, 1);
+        const easedProgress = 1 - Math.pow(1 - progress, 4); // easeOutQuart
+
+        const currentZoom = startZoom + (finalZoom - startZoom) * easedProgress;
+
+        const currentContentScreenX = startContentScreenX + (endContentScreenX - startContentScreenX) * easedProgress;
+        const currentContentScreenY = startContentScreenY + (endContentScreenY - startContentScreenY) * easedProgress;
+        
+        const currentPanX = currentContentScreenX - (contentCenterX * currentZoom);
+        const currentPanY = currentContentScreenY - (contentCenterY * currentZoom);
+
+        setZoom(currentZoom);
+        setPan({ x: currentPanX, y: currentPanY });
+
+        if (progress < 1) {
+            animationFrameId.current = requestAnimationFrame(animate);
+        } else {
+            animationFrameId.current = null;
+            setPan(finalPan); // Snap to final position
+            setZoom(finalZoom);
+        }
+    };
+
+    animationFrameId.current = requestAnimationFrame(animate);
+  };
+
+  const handleClearCanvas = () => {
+    if (window.confirm("Are you sure you want to clear the canvas? This cannot be undone.")) {
+        resetBoxes();
+    }
+  };
+
   return (
     <div className="app-container">
       <div className="top-bar">
         <button onClick={handleSave}>Save</button>
         <button onClick={handleLoad}>Load</button>
+        <button onClick={handleResetView}>Reset View</button>
+        <button onClick={handleClearCanvas}>Clear Canvas</button>
       </div>
       <h1 className="title">Kairo</h1>
       <div
