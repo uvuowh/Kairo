@@ -12,6 +12,12 @@ function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isComposing = useRef(false);
 
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const targetPan = useRef({ x: 0, y: 0 });
+  const targetZoom = useRef(1);
+  const animationFrameId = useRef<number | null>(null);
+  
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
   const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox } = useBoxes();
@@ -42,6 +48,9 @@ function App() {
     (gridX: number, gridY: number) => {
         addBox({ x: gridX, y: gridY, width: 2, height: 1 });
     },
+    pan,
+    setPan,
+    zoom
   );
 
   const { draw, getCursorIndexFromClick } = useCanvasDrawing(
@@ -50,7 +59,9 @@ function App() {
     selectedBoxId,
     newBoxPreview,
     cursor,
-    hoveredDeleteButton
+    hoveredDeleteButton,
+    pan,
+    zoom
   );
 
   useEffect(() => {
@@ -69,6 +80,73 @@ function App() {
         setCursor(null);
     }
   }, [selectedBoxId]);
+
+  const startAnimation = () => {
+    if (animationFrameId.current) return;
+
+    const animate = () => {
+      const LERP_FACTOR = 0.1; // Smoothing factor
+
+      setPan(currentPan => {
+        const dx = targetPan.current.x - currentPan.x;
+        const dy = targetPan.current.y - currentPan.y;
+        
+        if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
+            return targetPan.current;
+        }
+        return { x: currentPan.x + dx * LERP_FACTOR, y: currentPan.y + dy * LERP_FACTOR };
+      });
+
+      setZoom(currentZoom => {
+        const dZoom = targetZoom.current - currentZoom;
+        if (Math.abs(dZoom) < 0.001) {
+            return targetZoom.current;
+        }
+        return currentZoom + dZoom * LERP_FACTOR;
+      });
+
+      animationFrameId.current = requestAnimationFrame(animate);
+    };
+    animationFrameId.current = requestAnimationFrame(animate);
+  };
+
+  // Effect to stop animation when target is reached
+  useEffect(() => {
+    const panReached = Math.abs(targetPan.current.x - pan.x) < 0.1 && Math.abs(targetPan.current.y - pan.y) < 0.1;
+    const zoomReached = Math.abs(targetZoom.current - zoom) < 0.001;
+
+    if (panReached && zoomReached && animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+    }
+  }, [pan, zoom]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+
+    if (e.ctrlKey) {
+        // Zooming
+        const zoomSpeed = 0.005;
+        const oldTargetZoom = targetZoom.current;
+        const newTargetZoom = Math.max(0.1, Math.min(5, oldTargetZoom - e.deltaY * zoomSpeed));
+        targetZoom.current = newTargetZoom;
+        
+        const rect = e.currentTarget.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const zoomRatio = newTargetZoom / oldTargetZoom;
+        
+        // Apply pan delta to keep mouse position constant
+        targetPan.current.x = mouseX - (mouseX - targetPan.current.x) * zoomRatio;
+        targetPan.current.y = mouseY - (mouseY - targetPan.current.y) * zoomRatio;
+    } else {
+        // Panning
+        targetPan.current.x -= e.deltaX;
+        targetPan.current.y -= e.deltaY;
+    }
+    startAnimation();
+  };
 
   const handleTextInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isComposing.current || !selectedBoxId) return;
@@ -151,6 +229,7 @@ function App() {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onWheel={handleWheel}
       >
         <canvas
           ref={canvasRef}

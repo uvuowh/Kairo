@@ -178,7 +178,9 @@ export const useCanvasDrawing = (
     selectedBoxId: string | null,
     newBoxPreview: BoxPreview | null,
     cursor: Cursor | null,
-    hoveredDeleteButton: string | null
+    hoveredDeleteButton: string | null,
+    pan: { x: number, y: number },
+    zoom: number
 ) => {
     const [isCursorVisible, setIsCursorVisible] = useState(true);
 
@@ -220,29 +222,40 @@ export const useCanvasDrawing = (
         if (canvas.width !== canvas.clientWidth * dpr || canvas.height !== canvas.clientHeight * dpr) {
             canvas.width = canvas.clientWidth * dpr;
             canvas.height = canvas.clientHeight * dpr;
-            ctx.scale(dpr, dpr);
         }
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
         
+        ctx.save();
+        ctx.scale(dpr * zoom, dpr * zoom);
+        ctx.translate(pan.x / zoom, pan.y / zoom);
+
+        const viewLeft = -pan.x / zoom;
+        const viewTop = -pan.y / zoom;
+        const viewWidth = canvas.clientWidth / zoom;
+        const viewHeight = canvas.clientHeight / zoom;
+        
+        ctx.clearRect(viewLeft, viewTop, viewWidth, viewHeight);
+
         const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
         // Draw grid
         ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
-        ctx.lineWidth = 0.5;
-        const columns = Math.floor(canvas.clientWidth / GRID_CONSTANTS.gridSize);
-        const rows = Math.floor(canvas.clientHeight / GRID_CONSTANTS.gridSize);
+        ctx.lineWidth = 0.5 / zoom;
 
-        for (let i = 0; i <= columns; i++) {
+        const gridStartX = Math.floor(viewLeft / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridEndX = Math.ceil((viewLeft + viewWidth) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridStartY = Math.floor(viewTop / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridEndY = Math.ceil((viewTop + viewHeight) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+
+        for (let x = gridStartX; x < gridEndX; x += GRID_CONSTANTS.gridSize) {
             ctx.beginPath();
-            ctx.moveTo(i * GRID_CONSTANTS.gridSize, 0);
-            ctx.lineTo(i * GRID_CONSTANTS.gridSize, canvas.clientHeight);
+            ctx.moveTo(x, viewTop);
+            ctx.lineTo(x, viewTop + viewHeight);
             ctx.stroke();
         }
-        for (let i = 0; i <= rows; i++) {
+        for (let y = gridStartY; y < gridEndY; y += GRID_CONSTANTS.gridSize) {
             ctx.beginPath();
-            ctx.moveTo(0, i * GRID_CONSTANTS.gridSize);
-            ctx.lineTo(canvas.clientWidth, i * GRID_CONSTANTS.gridSize);
+            ctx.moveTo(viewLeft, y);
+            ctx.lineTo(viewLeft + viewWidth, y);
             ctx.stroke();
         }
         
@@ -273,43 +286,26 @@ export const useCanvasDrawing = (
             
             // Draw controls only for the selected box
             if (box.id === selectedBoxId) {
-                const handleRadius = 5;
+                const handleRadius = 4 / zoom;
+                const handleHitRadius = 8 / zoom;
+
+                ctx.strokeStyle = '#60a5fa'; // A nice blue color
+                roundRect(ctx, rectX - 2, rectY - 2, rectW + 4, rectH + 4, borderRadius + 2);
+                ctx.stroke();
 
                 // Draw delete button
-                const deleteHandleX = rectX + rectW;
-                const deleteHandleY = rectY;
-                const isHoveredDelete = box.id === hoveredDeleteButton;
+                if (box.id === hoveredDeleteButton || box.id === selectedBoxId) {
+                    const deleteHandleCenterX = rectX + rectW;
+                    const deleteHandleCenterY = rectY;
 
-                ctx.beginPath();
-                ctx.arc(deleteHandleX, deleteHandleY, handleRadius, 0, 2 * Math.PI);
-                ctx.fillStyle = isDarkMode ? '#2d2d2d' : '#ffffff';
-                ctx.fill();
-                ctx.beginPath();
-                ctx.arc(deleteHandleX, deleteHandleY, handleRadius, 0, 2 * Math.PI);
-
-                if (isHoveredDelete) {
-                    ctx.fillStyle = "rgba(255, 100, 100, 1)";
+                    ctx.beginPath();
+                    ctx.arc(deleteHandleCenterX, deleteHandleCenterY, handleRadius * 1.5, 0, Math.PI * 2);
+                    ctx.fillStyle = (box.id === hoveredDeleteButton) ? '#ef4444' : (isDarkMode ? '#555' : '#ccc');
                     ctx.fill();
-                } else {
-                    ctx.strokeStyle = "rgba(255, 100, 100, 0.8)";
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
                 }
-
-                // Draw 'X' in delete button
-                ctx.strokeStyle = isHoveredDelete ? '#ffffff' : "rgba(255, 100, 100, 0.9)";
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                const xOffset = handleRadius * 0.4;
-                ctx.moveTo(deleteHandleX - xOffset, deleteHandleY - xOffset);
-                ctx.lineTo(deleteHandleX + xOffset, deleteHandleY + xOffset);
-                ctx.moveTo(deleteHandleX + xOffset, deleteHandleY - xOffset);
-                ctx.lineTo(deleteHandleX - xOffset, deleteHandleY + xOffset);
-                ctx.stroke();
             }
             
             if (box.id === selectedBoxId) {
-                const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                 ctx.strokeStyle = isDarkMode ? "rgba(100, 180, 255, 1)" : "rgba(0, 100, 255, 1)";
                 ctx.lineWidth = 2;
                 roundRect(ctx, rectX - 1, rectY - 1, rectW + 2, rectH + 2, borderRadius + 1);
@@ -322,13 +318,9 @@ export const useCanvasDrawing = (
         if (cursor && cursor.boxId === selectedBoxId && isCursorVisible) {
             const box = boxes.find(b => b.id === cursor.boxId);
             if (box) {
-                const { pixelX, pixelY, cursorLineIndex } = getCursorPixelPosition(ctx, box, cursor.index);
-                
-                // Only draw cursor if it's within the visible height of the box
-                if ((cursorLineIndex + 1) * LINE_HEIGHT <= box.height * GRID_CONSTANTS.gridSize) {
-                    ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
-                    ctx.fillRect(pixelX, pixelY - PADDING, 2, FONT_SIZE + PADDING * 2);
-                }
+                const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
+                ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+                ctx.fillRect(pixelX, pixelY, 1 / zoom, FONT_SIZE);
             }
         }
 
@@ -344,7 +336,9 @@ export const useCanvasDrawing = (
             );
             ctx.setLineDash([]);
         }
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, isCursorVisible, hoveredDeleteButton]);
+
+        ctx.restore();
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, hoveredDeleteButton, pan, zoom, isCursorVisible]);
 
     return { draw, getCursorIndexFromClick };
 }; 
