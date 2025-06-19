@@ -20,7 +20,7 @@ function App() {
   
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
-  const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox } = useBoxes();
+  const { boxes, setBoxes, findBoxAt, updateBox, addBox, deleteBox, moveBoxes } = useBoxes();
   
   const {
     selectedBoxId,
@@ -30,14 +30,20 @@ function App() {
     handleMouseMove,
     handleMouseUp,
     hoveredDeleteButton,
+    isPanning,
   } = useInteraction(
     boxes,
-    setBoxes,
+    (boxes: Box[]) => setBoxes(boxes),
     findBoxAt,
     addBox,
-    (box: Box) => {
+    (box: Box, worldX: number, worldY: number) => {
         inputRef.current?.focus();
-        setCursor({ boxId: box.id, index: box.text.length });
+        if (selectedBoxId === box.id) {
+            const newIndex = getCursorIndexFromClick(box, worldX, worldY);
+            setCursor({ boxId: box.id, index: newIndex });
+        } else {
+            setCursor({ boxId: box.id, index: box.text.length });
+        }
     },
     (box: Box, mouseX: number, mouseY: number) => {
         const newIndex = getCursorIndexFromClick(box, mouseX, mouseY);
@@ -50,7 +56,8 @@ function App() {
     },
     pan,
     setPan,
-    zoom
+    zoom,
+    moveBoxes
   );
 
   const { draw, getCursorIndexFromClick } = useCanvasDrawing(
@@ -81,45 +88,51 @@ function App() {
     }
   }, [selectedBoxId]);
 
+  useEffect(() => {
+    // This effect handles redrawing when state changes,
+    // but avoids redrawing during a direct pan drag, as that is handled by the interaction hook.
+    if (!isPanning) {
+        draw();
+    }
+  }, [pan, zoom, boxes, cursor, isPanning, draw]);
+
   const startAnimation = () => {
     if (animationFrameId.current) return;
 
     const animate = () => {
       const LERP_FACTOR = 0.1; // Smoothing factor
 
-      setPan(currentPan => {
-        const dx = targetPan.current.x - currentPan.x;
-        const dy = targetPan.current.y - currentPan.y;
-        
-        if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
-            return targetPan.current;
-        }
-        return { x: currentPan.x + dx * LERP_FACTOR, y: currentPan.y + dy * LERP_FACTOR };
-      });
+      let needsToContinue = false;
 
       setZoom(currentZoom => {
         const dZoom = targetZoom.current - currentZoom;
-        if (Math.abs(dZoom) < 0.001) {
-            return targetZoom.current;
+        if (Math.abs(dZoom) > 0.001) {
+            needsToContinue = true;
+            return currentZoom + dZoom * LERP_FACTOR;
         }
-        return currentZoom + dZoom * LERP_FACTOR;
+        return targetZoom.current;
       });
 
-      animationFrameId.current = requestAnimationFrame(animate);
+      setPan(currentPan => {
+        const dx = targetPan.current.x - currentPan.x;
+        const dy = targetPan.current.y - currentPan.y;
+        if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+            needsToContinue = true;
+            return { x: currentPan.x + dx * LERP_FACTOR, y: currentPan.y + dy * LERP_FACTOR };
+        }
+        return targetPan.current;
+      });
+      
+      draw(); // Redraw on each frame of the animation for smoothness
+
+      if (needsToContinue) {
+        animationFrameId.current = requestAnimationFrame(animate);
+      } else {
+        animationFrameId.current = null;
+      }
     };
     animationFrameId.current = requestAnimationFrame(animate);
   };
-
-  // Effect to stop animation when target is reached
-  useEffect(() => {
-    const panReached = Math.abs(targetPan.current.x - pan.x) < 0.1 && Math.abs(targetPan.current.y - pan.y) < 0.1;
-    const zoomReached = Math.abs(targetZoom.current - zoom) < 0.001;
-
-    if (panReached && zoomReached && animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-        animationFrameId.current = null;
-    }
-  }, [pan, zoom]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -141,7 +154,7 @@ function App() {
         targetPan.current.x = mouseX - (mouseX - targetPan.current.x) * zoomRatio;
         targetPan.current.y = mouseY - (mouseY - targetPan.current.y) * zoomRatio;
     } else {
-        // Panning
+        // Panning with wheel, should be smooth
         targetPan.current.x -= e.deltaX;
         targetPan.current.y -= e.deltaY;
     }
@@ -174,10 +187,6 @@ function App() {
         handleTextInput(e as any);
     }
   };
-
-  useEffect(() => {
-    draw();
-  }, [draw, boxes, cursor]);
 
   const handleSave = async () => {
     try {
@@ -230,6 +239,7 @@ function App() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onWheel={handleWheel}
+        style={{ cursor: isPanning ? 'grabbing' : 'default' }}
       >
         <canvas
           ref={canvasRef}
