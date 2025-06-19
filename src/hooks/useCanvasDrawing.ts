@@ -214,6 +214,15 @@ export const useCanvasDrawing = (
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
+        // Handle High DPI displays
+        const dpr = window.devicePixelRatio || 1;
+
+        if (canvas.width !== canvas.clientWidth * dpr || canvas.height !== canvas.clientHeight * dpr) {
+            canvas.width = canvas.clientWidth * dpr;
+            canvas.height = canvas.clientHeight * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
         const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -221,19 +230,19 @@ export const useCanvasDrawing = (
         // Draw grid
         ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.05)";
         ctx.lineWidth = 0.5;
-        const columns = Math.floor(canvas.width / GRID_CONSTANTS.gridSize);
-        const rows = Math.floor(canvas.height / GRID_CONSTANTS.gridSize);
+        const columns = Math.floor(canvas.clientWidth / GRID_CONSTANTS.gridSize);
+        const rows = Math.floor(canvas.clientHeight / GRID_CONSTANTS.gridSize);
 
         for (let i = 0; i <= columns; i++) {
             ctx.beginPath();
             ctx.moveTo(i * GRID_CONSTANTS.gridSize, 0);
-            ctx.lineTo(i * GRID_CONSTANTS.gridSize, canvas.height);
+            ctx.lineTo(i * GRID_CONSTANTS.gridSize, canvas.clientHeight);
             ctx.stroke();
         }
         for (let i = 0; i <= rows; i++) {
             ctx.beginPath();
             ctx.moveTo(0, i * GRID_CONSTANTS.gridSize);
-            ctx.lineTo(canvas.width, i * GRID_CONSTANTS.gridSize);
+            ctx.lineTo(canvas.clientWidth, i * GRID_CONSTANTS.gridSize);
             ctx.stroke();
         }
         

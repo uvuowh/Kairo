@@ -41,7 +41,7 @@ function App() {
     deleteBox,
     (gridX: number, gridY: number) => {
         addBox({ x: gridX, y: gridY, width: 2, height: 1 });
-    }
+    },
   );
 
   const { draw, getCursorIndexFromClick } = useCanvasDrawing(
@@ -154,8 +154,6 @@ function App() {
       >
         <canvas
           ref={canvasRef}
-          width={window.innerWidth}
-          height={window.innerHeight}
         />
         <textarea
           ref={inputRef}

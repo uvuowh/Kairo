@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Box, MouseDownState, GRID_CONSTANTS } from '../types';
-import { isBoxCollidingWithAny, isPreviewCollidingWithAny, doBoxesIntersect } from '../utils/collision';
+import { isPreviewCollidingWithAny, doBoxesIntersect } from '../utils/collision';
 
 export interface BoxPreview {
     x: number;
@@ -14,22 +14,22 @@ export const useInteraction = (
     setBoxes: React.Dispatch<React.SetStateAction<Box[]>>, 
     findBoxAt: (gridX: number, gridY: number) => Box | undefined,
     addBox: (box: Omit<Box, 'id' | 'text'>) => void,
-    onSelectBox: (box: Box) => void,
-    onSetCursor: (box: Box, mouseX: number, mouseY: number) => void,
-    onDeleteBox: (boxId: string) => void,
-    onDoubleClickEmpty: (gridX: number, gridY: number) => void
+    onBoxClick: (box: Box) => void,
+    onBoxDoubleClick: (box: Box, mouseX: number, mouseY: number) => void,
+    onBoxDelete: (boxId: string) => void,
+    onDoubleClickEmpty: (gridX: number, gridY: number) => void,
 ) => {
-    const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
+    const mouseDownRef = useRef<MouseDownState | null>(null);
     const [draggingBox, setDraggingBox] = useState<{
         boxId: string;
         offsetX: number;
         offsetY: number;
     } | null>(null);
-    const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
+    const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
     const [newBoxPreview, setNewBoxPreview] = useState<BoxPreview | null>(null);
+    const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
 
-    const mouseDownRef = useRef<MouseDownState | null>(null);
-    const lastClickRef = useRef<{ time: number, x: number, y: number } | null>(null);
+    const lastClickTime = useRef(0);
     
     const selectedBox = boxes.find(b => b.id === selectedBoxId);
 
@@ -40,47 +40,44 @@ export const useInteraction = (
         const gridX = Math.floor(mouseX / GRID_CONSTANTS.gridSize);
         const gridY = Math.floor(mouseY / GRID_CONSTANTS.gridSize);
 
-        if (hoveredDeleteButton) {
-            onDeleteBox(hoveredDeleteButton);
-            if (hoveredDeleteButton === selectedBoxId) {
-                setSelectedBoxId(null);
-            }
-            setHoveredDeleteButton(null);
-            mouseDownRef.current = null;
-            return;
-        }
-        
+        const now = Date.now();
+        const DOUBLE_CLICK_THRESHOLD = 300; // in ms
+
         const clickedBox = findBoxAt(gridX, gridY);
 
-        const now = Date.now();
-        const DOUBLE_CLICK_THRESHOLD = 300; // ms
-        if (lastClickRef.current && now - lastClickRef.current.time < DOUBLE_CLICK_THRESHOLD && lastClickRef.current.x === gridX && lastClickRef.current.y === gridY) {
-            if (!clickedBox) {
+        // Handle delete button click
+        if (hoveredDeleteButton) {
+            onBoxDelete(hoveredDeleteButton);
+            setHoveredDeleteButton(null);
+            mouseDownRef.current = null; // Prevent other actions
+            return;
+        }
+
+        // Double click handling
+        if (now - lastClickTime.current < DOUBLE_CLICK_THRESHOLD) {
+            if (clickedBox) {
+                onBoxDoubleClick(clickedBox, mouseX, mouseY);
+            } else {
                 onDoubleClickEmpty(gridX, gridY);
             }
-            lastClickRef.current = null; // Reset after double click
-            mouseDownRef.current = null;
+            lastClickTime.current = 0; // Reset timer
+            mouseDownRef.current = null; // Prevent drag
             return;
         }
-        lastClickRef.current = { time: now, x: gridX, y: gridY };
+        lastClickTime.current = now;
 
-        // If clicking on the already selected box, it's a cursor reposition event.
-        if (clickedBox && clickedBox.id === selectedBoxId) {
-            onSetCursor(clickedBox, mouseX, mouseY);
-            mouseDownRef.current = null; // Prevent dragging
-            return;
-        }
-
+        // Store mouse down state
         mouseDownRef.current = {
-            time: Date.now(),
+            time: now,
             x: mouseX,
             y: mouseY,
             gridX,
             gridY,
             boxId: clickedBox?.id || null,
         };
-        
-        if (selectedBoxId && clickedBox?.id !== selectedBoxId) {
+
+        // If clicking on a different box, deselect the current one
+        if (clickedBox && clickedBox.id !== selectedBoxId) {
             setSelectedBoxId(null);
         }
     };
@@ -89,20 +86,18 @@ export const useInteraction = (
         const rect = e.currentTarget.getBoundingClientRect();
         const currentMouseX = e.clientX - rect.left;
         const currentMouseY = e.clientY - rect.top;
-        
+
+        // If not dragging, check for hover states (e.g., delete button)
         if (!mouseDownRef.current) {
             let isHoveringOnDeleteButton = false;
             const handleHitRadius = 8; 
 
-            for (const box of boxes) {
-                // Only show handles for selected box for less visual noise.
-                if (box.id !== selectedBoxId) continue;
-
+            if (selectedBox) {
+                 const box = selectedBox;
                 const rectX = box.x * GRID_CONSTANTS.gridSize;
                 const rectY = box.y * GRID_CONSTANTS.gridSize;
                 const rectW = box.width * GRID_CONSTANTS.gridSize;
 
-                // Check for delete button hover
                 const deleteHandleCenterX = rectX + rectW;
                 const deleteHandleCenterY = rectY;
                 const deleteDistance = Math.sqrt(Math.pow(currentMouseX - deleteHandleCenterX, 2) + Math.pow(currentMouseY - deleteHandleCenterY, 2));
@@ -112,35 +107,39 @@ export const useInteraction = (
                     setHoveredDeleteButton(box.id);
                 }
             }
-
-            if (!isHoveringOnDeleteButton) setHoveredDeleteButton(null);
-
-            if (isHoveringOnDeleteButton) {
-                e.currentTarget.style.cursor = 'pointer';
-            } else {
-                e.currentTarget.style.cursor = 'default';
+            
+            if (!isHoveringOnDeleteButton) {
+                setHoveredDeleteButton(null);
             }
 
+            e.currentTarget.style.cursor = isHoveringOnDeleteButton ? 'pointer' : 'default';
+            return;
+        }
+        
+        const DRAG_THRESHOLD = 5;
+        const distance = Math.sqrt(
+            Math.pow(currentMouseX - mouseDownRef.current.x, 2) +
+            Math.pow(currentMouseY - mouseDownRef.current.y, 2)
+        );
+
+        // If drag threshold is not met, do nothing
+        if (distance < DRAG_THRESHOLD) {
             return;
         }
 
-        // Handle creating a new box
-        if (!mouseDownRef.current.boxId && mouseDownRef.current) {
-            const startGridX = mouseDownRef.current.gridX;
-            const startGridY = mouseDownRef.current.gridY;
-            const currentGridX = Math.floor(currentMouseX / GRID_CONSTANTS.gridSize);
-            const currentGridY = Math.floor(currentMouseY / GRID_CONSTANTS.gridSize);
-
-            const x = Math.min(startGridX, currentGridX);
-            const y = Math.min(startGridY, currentGridY);
-            const width = Math.abs(startGridX - currentGridX) + 1;
-            const height = Math.abs(startGridY - currentGridY) + 1;
-            
-            setNewBoxPreview({ x, y, width, height });
-            return;
+        // Start dragging
+        // Dragging an existing box
+        if (mouseDownRef.current.boxId && !draggingBox) {
+            const box = boxes.find(b => b.id === mouseDownRef.current!.boxId)!;
+            setDraggingBox({
+                boxId: mouseDownRef.current.boxId,
+                offsetX: mouseDownRef.current.gridX - box.x,
+                offsetY: mouseDownRef.current.gridY - box.y,
+            });
+            // Deselect box when dragging starts
+            setSelectedBoxId(null);
         }
 
-        // Handle moving an existing box
         if (draggingBox) {
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
@@ -198,64 +197,41 @@ export const useInteraction = (
 
                 return finalBoxes;
             });
-            return;
-        }
-
-        // Check if starting a drag on an existing box
-        const DRAG_THRESHOLD = 5;
-        const distance = Math.sqrt(
-            Math.pow(currentMouseX - mouseDownRef.current.x, 2) +
-            Math.pow(currentMouseY - mouseDownRef.current.y, 2)
-        );
-
-        if (distance > DRAG_THRESHOLD && mouseDownRef.current.boxId) {
-            const box = boxes.find(b => b.id === mouseDownRef.current!.boxId)!;
-            setDraggingBox({
-                boxId: mouseDownRef.current.boxId,
-                offsetX: mouseDownRef.current.gridX - box.x,
-                offsetY: mouseDownRef.current.gridY - box.y,
-            });
-            if(selectedBoxId) setSelectedBoxId(null);
         }
     };
 
-    const handleMouseUp = () => {
-        // Finalize new box creation
-        if (newBoxPreview) {
-            // Ensure the box has a minimum size and doesn't collide
-            if ((newBoxPreview.width > 1 || newBoxPreview.height > 1) && !isPreviewCollidingWithAny(newBoxPreview, boxes)) {
-                addBox(newBoxPreview);
-            }
-            setNewBoxPreview(null);
-            mouseDownRef.current = null;
-            return;
-        }
+    const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
+        const DRAG_THRESHOLD = 5;
+        const now = Date.now();
 
-        if (draggingBox) {
-            setDraggingBox(null);
-            mouseDownRef.current = null;
-        }
-        
         if (mouseDownRef.current) {
-            const CLICK_TIME_THRESHOLD = 200;
-            const timeElapsed = Date.now() - mouseDownRef.current.time;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const distance = Math.sqrt(
+                Math.pow(e.clientX - rect.left - mouseDownRef.current.x, 2) +
+                Math.pow(e.clientY - rect.top - mouseDownRef.current.y, 2)
+            );
+            const timeElapsed = now - mouseDownRef.current.time;
 
-            if (timeElapsed < CLICK_TIME_THRESHOLD) {
-                const { boxId } = mouseDownRef.current;
-                if (boxId) {
-                    if(selectedBoxId !== boxId) {
-                        setSelectedBoxId(boxId);
-                        const box = boxes.find(b => b.id === boxId);
-                        if (box) onSelectBox(box);
-                    }
+            const isClick = distance < DRAG_THRESHOLD && timeElapsed < 200;
+
+            if (isClick) {
+                if (mouseDownRef.current.boxId) {
+                    const clickedBox = boxes.find(b => b.id === mouseDownRef.current!.boxId)!;
+                    onBoxClick(clickedBox);
+                    setSelectedBoxId(clickedBox.id);
                 } else {
+                    // Click on canvas
                     setSelectedBoxId(null);
                 }
             }
-            mouseDownRef.current = null;
         }
+        
+        // Reset states
+        setDraggingBox(null);
+        setNewBoxPreview(null);
+        mouseDownRef.current = null;
     };
-
+    
     return {
         selectedBoxId,
         selectedBox,
