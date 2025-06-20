@@ -3,7 +3,7 @@ use log::{info, error, debug};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{Emitter, State};
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -265,6 +265,48 @@ fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> Ca
 }
 
 #[tauri::command]
+fn select_boxes(ids: Vec<String>, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    let ids_set: HashSet<String> = ids.into_iter().collect();
+
+    for b in canvas_state.boxes.iter_mut() {
+        b.selected = ids_set.contains(&b.id);
+    }
+    
+    canvas_state.clone()
+}
+
+#[tauri::command]
+fn add_multiple_connections(from_ids: Vec<String>, to_id: String, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+
+    let existing_connections: HashSet<(String, String)> = canvas_state.connections.iter().map(|c| {
+        let mut pair = [c.from.as_str(), c.to.as_str()];
+        pair.sort();
+        (pair[0].to_string(), pair[1].to_string())
+    }).collect();
+
+    for from_id in from_ids {
+        if from_id == to_id {
+            continue;
+        }
+
+        let mut new_pair = [from_id.as_str(), to_id.as_str()];
+        new_pair.sort();
+        let new_conn_tuple = (new_pair[0].to_string(), new_pair[1].to_string());
+
+        if !existing_connections.contains(&new_conn_tuple) {
+            canvas_state.connections.push(Connection {
+                from: from_id,
+                to: to_id.clone(),
+            });
+        }
+    }
+    
+    canvas_state.clone()
+}
+
+#[tauri::command]
 fn add_connection(from: String, to: String, state: State<AppState>) -> CanvasState {
     let mut canvas_state = state.canvas_state.lock().unwrap();
 
@@ -348,6 +390,10 @@ pub fn run() {
     
     tauri::Builder::default()
         .manage(app_state)
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            info!("{}, {argv:?}, {cwd}", app.package_info().name);
+            app.emit("single-instance", argv).unwrap();
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -360,6 +406,8 @@ pub fn run() {
             delete_box,
             move_box,
             move_selected_boxes,
+            select_boxes,
+            add_multiple_connections,
             add_connection,
             load_new_state,
             get_bounding_box,

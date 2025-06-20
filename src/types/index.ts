@@ -18,6 +18,13 @@ export interface CanvasState {
   connections: Connection[];
 }
 
+export interface SelectionArea {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
 export const GRID_CONSTANTS = {
   gridSize: 20,
 };

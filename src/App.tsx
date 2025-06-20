@@ -40,7 +40,9 @@ function App() {
     addConnection, 
     toggleBoxSelection, 
     clearSelection,
-    moveSelectedBoxes
+    moveSelectedBoxes,
+    addMultipleConnections,
+    selectBoxes
   } = useCanvas();
   
   const selectedBoxes = boxes.filter(b => b.selected);
@@ -55,6 +57,7 @@ function App() {
     hoveredDeleteButton,
     isPanning,
     handleContextMenu,
+    selectionArea,
   } = useInteraction(
     boxes,
     () => {},
@@ -86,6 +89,8 @@ function App() {
     moveBoxes,
     moveSelectedBoxes,
     addConnection,
+    addMultipleConnections,
+    selectBoxes,
     toggleBoxSelection,
     clearSelection
   );
@@ -96,6 +101,7 @@ function App() {
     connections,
     selectedBoxId,
     newBoxPreview,
+    selectionArea,
     cursor,
     hoveredDeleteButton,
     pan,
@@ -183,42 +189,60 @@ function App() {
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-    if (isPanning) {
-        return;
-    }
     e.preventDefault();
 
-    if (e.ctrlKey) {
-        const zoomSensitivity = 0.005;
-        const oldTargetZoom = targetZoom.current;
-        const zoomMultiplier = Math.exp(-e.deltaY * zoomSensitivity);
-        const newTargetZoom = Math.max(0.1, Math.min(5, oldTargetZoom * zoomMultiplier));
-        targetZoom.current = newTargetZoom;
-        
-        const rect = e.currentTarget.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+    const isPixelBasedScroll = e.deltaMode === 0;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
 
-        const zoomRatio = newTargetZoom / oldTargetZoom;
-        
-        targetPan.current.x = mouseX - (mouseX - targetPan.current.x) * zoomRatio;
-        targetPan.current.y = mouseY - (mouseY - targetPan.current.y) * zoomRatio;
-        startAnimation();
-    } else {
-        const isPixelBasedScroll = e.deltaMode === 0;
+    if (e.ctrlKey) { // Zooming
+        const zoomSensitivity = 0.005;
+        const zoomMultiplier = Math.exp(-e.deltaY * zoomSensitivity);
 
         if (isPixelBasedScroll) {
+            // Instant zoom for trackpad
+            setZoom(currentZoom => {
+                const newZoom = Math.max(0.1, Math.min(5, currentZoom * zoomMultiplier));
+                const zoomRatio = newZoom / currentZoom;
+                setPan(currentPan => ({
+                    x: mouseX - (mouseX - currentPan.x) * zoomRatio,
+                    y: mouseY - (mouseY - currentPan.y) * zoomRatio
+                }));
+                targetZoom.current = newZoom; // Keep target in sync
+                targetPan.current = {
+                    x: mouseX - (mouseX - pan.x) * zoomRatio,
+                    y: mouseY - (mouseY - pan.y) * zoomRatio
+                };
+                return newZoom;
+            });
+        } else {
+            // Animated zoom for mouse wheel
+            const oldTargetZoom = targetZoom.current;
+            const newTargetZoom = Math.max(0.1, Math.min(5, oldTargetZoom * zoomMultiplier));
+            targetZoom.current = newTargetZoom;
+            
+            const zoomRatio = newTargetZoom / oldTargetZoom;
+            
+            targetPan.current.x = mouseX - (mouseX - targetPan.current.x) * zoomRatio;
+            targetPan.current.y = mouseY - (mouseY - targetPan.current.y) * zoomRatio;
+            startAnimation();
+        }
+    } else { // Panning
+        if (isPixelBasedScroll) {
+            // Instant pan for trackpad
             setPan(prevPan => {
                 const newPan = {
                     x: prevPan.x - e.deltaX,
                     y: prevPan.y - e.deltaY
                 };
-                targetPan.current = newPan;
+                targetPan.current = newPan; // Keep target in sync
                 return newPan;
             });
         } else {
-        targetPan.current.x -= e.deltaX;
-        targetPan.current.y -= e.deltaY;
+            // Animated pan for mouse wheel
+            targetPan.current.x -= e.deltaX;
+            targetPan.current.y -= e.deltaY;
             startAnimation();
         }
     }

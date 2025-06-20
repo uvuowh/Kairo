@@ -1,5 +1,5 @@
 import { RefObject, useCallback, useEffect, useState } from 'react';
-import { Box, Connection, GRID_CONSTANTS } from '../types';
+import { Box, Connection, GRID_CONSTANTS, SelectionArea } from '../types';
 import { BoxPreview } from './useInteraction';
 
 type Cursor = {
@@ -179,6 +179,7 @@ export const useCanvasDrawing = (
     connections: Connection[],
     selectedBoxId: string | null,
     newBoxPreview: BoxPreview | null,
+    selectionArea: SelectionArea | null,
     cursor: Cursor | null,
     hoveredDeleteButton: string | null,
     pan: { x: number, y: number },
@@ -360,8 +361,18 @@ export const useCanvasDrawing = (
             ctx.setLineDash([]);
         }
 
+        if (selectionArea) {
+            ctx.fillStyle = "rgba(0, 100, 255, 0.1)";
+            ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
+            ctx.lineWidth = 1 / zoom;
+            const width = selectionArea.endX - selectionArea.startX;
+            const height = selectionArea.endY - selectionArea.startY;
+            ctx.fillRect(selectionArea.startX, selectionArea.startY, width, height);
+            ctx.strokeRect(selectionArea.startX, selectionArea.startY, width, height);
+        }
+
         ctx.restore();
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, hoveredDeleteButton, pan, zoom, connections]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, selectionArea, hoveredDeleteButton, pan, zoom, connections]);
 
     useEffect(() => {
         const canvas = canvasRef.current;

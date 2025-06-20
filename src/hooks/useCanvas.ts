@@ -99,5 +99,23 @@ export const useCanvas = () => {
         }
     }, []);
 
-    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection, toggleBoxSelection, clearSelection, moveSelectedBoxes };
+    const addMultipleConnections = useCallback(async (fromIds: string[], toId: string) => {
+        try {
+            const updatedState = await invoke<CanvasState>('add_multiple_connections', { fromIds, toId });
+            setCanvasState(updatedState);
+        } catch (e) {
+            console.error("Failed to add multiple connections", e);
+        }
+    }, []);
+
+    const selectBoxes = useCallback(async (ids: string[]) => {
+        try {
+            const updatedState = await invoke<CanvasState>('select_boxes', { ids });
+            setCanvasState(updatedState);
+        } catch (e) {
+            console.error("Failed to select boxes", e);
+        }
+    }, []);
+
+    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection, toggleBoxSelection, clearSelection, moveSelectedBoxes, addMultipleConnections, selectBoxes };
 }; 

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Box, MouseDownState, GRID_CONSTANTS } from '../types';
+import { Box, MouseDownState, GRID_CONSTANTS, SelectionArea } from '../types';
 import { isPreviewCollidingWithAny, doBoxesIntersect } from '../utils/collision';
 import { DELETE_HANDLE_RADIUS } from '../hooks/useCanvasDrawing';
 
@@ -25,6 +25,8 @@ export const useInteraction = (
     moveBoxes: (id: string, newX: number, newY: number) => Promise<void>,
     moveSelectedBoxes: (deltaX: number, deltaY: number) => Promise<void>,
     addConnection: (from: string, to: string) => Promise<void>,
+    addMultipleConnections: (fromIds: string[], toId: string) => Promise<void>,
+    selectBoxes: (ids: string[]) => Promise<void>,
     toggleBoxSelection: (id: string) => Promise<void>,
     clearSelection: () => Promise<void>
 ) => {
@@ -40,6 +42,7 @@ export const useInteraction = (
     const [newBoxPreview, setNewBoxPreview] = useState<BoxPreview | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
     const [isPanning, setIsPanning] = useState(false);
+    const [selectionArea, setSelectionArea] = useState<SelectionArea | null>(null);
 
     const lastClickTime = useRef(0);
     
@@ -59,10 +62,13 @@ export const useInteraction = (
         const selectedBoxes = boxes.filter(b => b.selected);
 
         if (e.button === 2) { // Right mouse button
-            if (selectedBoxes.length === 1 && clickedBox && clickedBox.id !== selectedBoxes[0].id) {
-                addConnection(selectedBoxes[0].id, clickedBox.id);
+            if (clickedBox && !clickedBox.selected) {
+                if (selectedBoxes.length > 0) {
+                    const fromIds = selectedBoxes.map(b => b.id);
+                    addMultipleConnections(fromIds, clickedBox.id);
+                }
             }
-            // Always prevent context menu on right click for now
+            // Always prevent context menu on right click
             e.preventDefault();
             return;
         }
@@ -114,11 +120,19 @@ export const useInteraction = (
         };
 
         if (e.ctrlKey) {
-            // With ctrl, we don't want to drag, just select.
-            // So we toggle selection and prevent drag by clearing mouseDownRef
             if (clickedBox) {
+                // With ctrl, click on a box toggles it without deselecting others.
                 toggleBoxSelection(clickedBox.id);
-                mouseDownRef.current = null;
+                mouseDownRef.current = null; // Prevent drag
+            } else {
+                // With ctrl, click on empty space starts lasso selection.
+                setSelectionArea({
+                    startX: worldX,
+                    startY: worldY,
+                    endX: worldX,
+                    endY: worldY,
+                });
+                // We don't clear selection here, we do it on mouse up to allow for ctrl+click combos
             }
         } else {
             // Without ctrl
@@ -243,6 +257,12 @@ export const useInteraction = (
                 });
             }
         }
+
+        // Handle selection area dragging
+        if (selectionArea) {
+            setSelectionArea(prev => prev ? { ...prev, endX: worldX, endY: worldY } : null);
+            return;
+        }
     };
 
     const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -267,6 +287,35 @@ export const useInteraction = (
 
         if (isPanning) {
             setIsPanning(false);
+            mouseDownRef.current = null;
+            return;
+        }
+
+        if (selectionArea) {
+            const minX = Math.min(selectionArea.startX, selectionArea.endX);
+            const maxX = Math.max(selectionArea.startX, selectionArea.endX);
+            const minY = Math.min(selectionArea.startY, selectionArea.endY);
+            const maxY = Math.max(selectionArea.startY, selectionArea.endY);
+
+            const selectionRect = {
+                x: minX / GRID_CONSTANTS.gridSize,
+                y: minY / GRID_CONSTANTS.gridSize,
+                width: (maxX - minX) / GRID_CONSTANTS.gridSize,
+                height: (maxY - minY) / GRID_CONSTANTS.gridSize,
+            };
+
+            const marqueeSelectedIds = boxes
+                .filter(box => doBoxesIntersect(box, selectionRect))
+                .map(box => box.id);
+            
+            const previouslySelectedIds = boxes
+                .filter(box => box.selected)
+                .map(box => box.id);
+
+            const combinedIds = [...new Set([...previouslySelectedIds, ...marqueeSelectedIds])];
+
+            selectBoxes(combinedIds);
+            setSelectionArea(null);
             mouseDownRef.current = null;
             return;
         }
@@ -314,7 +363,30 @@ export const useInteraction = (
         handleContextMenu,
         draggingBox, 
         newBoxPreview, 
+        selectionArea,
         hoveredDeleteButton,
         isPanning,
     };
+};
+
+const doBoxesIntersect = (boxA: { x: number, y: number, width: number, height: number }, boxB: { x: number, y: number, width: number, height: number }) => {
+    const boxA_x = boxA.x;
+    const boxA_y = boxA.y;
+    const boxA_w = boxA.width;
+    const boxA_h = boxA.height;
+
+    const boxB_x = boxB.x;
+    const boxB_y = boxB.y;
+    const boxB_w = boxB.width;
+    const boxB_h = boxB.height;
+
+    // Check for no overlap
+    if (boxA_x + boxA_w < boxB_x || 
+        boxB_x + boxB_w < boxA_x || 
+        boxA_y + boxA_h < boxB_y || 
+        boxB_y + boxB_h < boxA_y) {
+        return false;
+    }
+
+    return true;
 }; 
