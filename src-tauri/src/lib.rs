@@ -22,6 +22,7 @@ struct Box {
     width: i32,
     height: i32,
     text: String,
+    selected: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -59,8 +60,27 @@ fn add_box(x: i32, y: i32, width: i32, height: i32, state: State<AppState>) -> C
         width,
         height,
         text: "".to_string(),
+        selected: false,
     };
     canvas_state.boxes.push(new_box);
+    canvas_state.clone()
+}
+
+#[tauri::command]
+fn toggle_box_selection(id: String, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    if let Some(box_to_update) = canvas_state.boxes.iter_mut().find(|b| b.id == id) {
+        box_to_update.selected = !box_to_update.selected;
+    }
+    canvas_state.clone()
+}
+
+#[tauri::command]
+fn clear_selection(state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    for b in canvas_state.boxes.iter_mut() {
+        b.selected = false;
+    }
     canvas_state.clone()
 }
 
@@ -143,6 +163,92 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> C
         }
     }
 
+    for updated_box in to_update.values() {
+        for other_box in final_boxes.iter() {
+            if to_update.contains_key(&other_box.id) {
+                continue;
+            }
+            if do_boxes_intersect(updated_box, other_box) {
+                return original_state;
+            }
+        }
+    }
+
+    canvas_state.boxes = final_boxes;
+    canvas_state.clone()
+}
+
+#[tauri::command]
+fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> CanvasState {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    if delta_x == 0 && delta_y == 0 {
+        return canvas_state.clone();
+    }
+    
+    let original_state = canvas_state.clone();
+
+    let selected_ids: HashSet<String> = canvas_state.boxes.iter()
+        .filter(|b| b.selected)
+        .map(|b| b.id.clone())
+        .collect();
+
+    if selected_ids.is_empty() {
+        return canvas_state.clone();
+    }
+
+    let mut to_update: HashMap<String, Box> = HashMap::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
+
+    for id in &selected_ids {
+        if let Some(box_to_move) = canvas_state.boxes.iter().find(|b| &b.id == id) {
+            let mut moved_box = box_to_move.clone();
+            moved_box.x += delta_x;
+            moved_box.y += delta_y;
+            
+            if moved_box.x < 0 || moved_box.y < 0 {
+                return original_state; 
+            }
+
+            to_update.insert(id.clone(), moved_box);
+            queue.push_back(id.clone());
+        }
+    }
+
+    // Cascading logic
+    while let Some(current_id) = queue.pop_front() {
+        let moving_box = match to_update.get(&current_id) {
+            Some(b) => b.clone(),
+            None => continue,
+        };
+
+        for other_box in canvas_state.boxes.iter() {
+            if to_update.contains_key(&other_box.id) {
+                continue;
+            }
+
+            if do_boxes_intersect(&moving_box, other_box) {
+                let mut new_other_box = other_box.clone();
+                new_other_box.x += delta_x;
+                new_other_box.y += delta_y;
+
+                if new_other_box.x < 0 || new_other_box.y < 0 {
+                    return original_state;
+                }
+
+                queue.push_back(new_other_box.id.clone());
+                to_update.insert(new_other_box.id.clone(), new_other_box);
+            }
+        }
+    }
+    
+    let mut final_boxes = original_state.boxes.clone();
+    for b in final_boxes.iter_mut() {
+        if let Some(updated_box) = to_update.get(&b.id) {
+            *b = updated_box.clone();
+        }
+    }
+
+    // Final collision check
     for updated_box in to_update.values() {
         for other_box in final_boxes.iter() {
             if to_update.contains_key(&other_box.id) {
@@ -248,12 +354,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_full_state,
             add_box,
+            toggle_box_selection,
+            clear_selection,
             update_box_text,
             delete_box,
             move_box,
+            move_selected_boxes,
+            add_connection,
             load_new_state,
             get_bounding_box,
-            add_connection,
             greet
         ])
         .setup(|app| {

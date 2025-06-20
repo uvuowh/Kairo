@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { GRID_CONSTANTS, Box, CanvasState } from "./types";
-import { useCanvas } from "./hooks/useBoxes";
+import { useCanvas } from "./hooks/useCanvas";
 import { useInteraction } from "./hooks/useInteraction";
 import { useCanvasDrawing, calculateSizeForText } from "./hooks/useCanvasDrawing";
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
@@ -28,11 +28,26 @@ function App() {
   
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
-  const { boxes, connections, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection } = useCanvas();
+  const { 
+    boxes, 
+    connections, 
+    setCanvasState, 
+    findBoxAt, 
+    updateBox, 
+    addBox, 
+    deleteBox, 
+    moveBoxes, 
+    addConnection, 
+    toggleBoxSelection, 
+    clearSelection,
+    moveSelectedBoxes
+  } = useCanvas();
   
+  const selectedBoxes = boxes.filter(b => b.selected);
+  const selectedBox = selectedBoxes.length === 1 ? selectedBoxes[0] : null;
+  const selectedBoxId = selectedBox ? selectedBox.id : null;
+
   const {
-    selectedBoxId,
-    selectedBox,
     newBoxPreview,
     handleMouseDown,
     handleMouseMove,
@@ -46,15 +61,17 @@ function App() {
     findBoxAt,
     addBox,
     (box: Box, worldX: number, worldY: number) => {
+        if (selectedBoxes.length !== 1) return;
         inputRef.current?.focus();
         if (selectedBoxId === box.id) {
             const newIndex = getCursorIndexFromClick(box, worldX, worldY);
             setCursor({ boxId: box.id, index: newIndex });
         } else {
-            setCursor({ boxId: box.id, index: box.text.length });
+        setCursor({ boxId: box.id, index: box.text.length });
         }
     },
     (box: Box, mouseX: number, mouseY: number) => {
+        if (selectedBoxes.length !== 1) return;
         const newIndex = getCursorIndexFromClick(box, mouseX, mouseY);
         inputRef.current?.focus();
         setCursor({ boxId: box.id, index: newIndex });
@@ -67,7 +84,10 @@ function App() {
     setPan,
     zoom,
     moveBoxes,
-    addConnection
+    moveSelectedBoxes,
+    addConnection,
+    toggleBoxSelection,
+    clearSelection
   );
 
   const { draw, getCursorIndexFromClick } = useCanvasDrawing(
@@ -118,7 +138,7 @@ function App() {
       setPan(currentPan => {
         const dx = targetPan.current.x - currentPan.x;
         const dy = targetPan.current.y - currentPan.y;
-
+        
         if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
             return targetPan.current;
         }
@@ -136,7 +156,7 @@ function App() {
         
         return { x: currentPan.x + moveX, y: currentPan.y + moveY };
       });
-      
+
       setZoom(currentZoom => {
         const dZoom = targetZoom.current - currentZoom;
         if (Math.abs(dZoom) < 0.001) {
@@ -150,7 +170,7 @@ function App() {
       draw(); 
 
       if (needsToContinue) {
-        animationFrameId.current = requestAnimationFrame(animate);
+      animationFrameId.current = requestAnimationFrame(animate);
       } else {
         if (animationFrameId.current) {
             cancelAnimationFrame(animationFrameId.current);
@@ -197,8 +217,8 @@ function App() {
                 return newPan;
             });
         } else {
-            targetPan.current.x -= e.deltaX;
-            targetPan.current.y -= e.deltaY;
+        targetPan.current.x -= e.deltaX;
+        targetPan.current.y -= e.deltaY;
             startAnimation();
         }
     }

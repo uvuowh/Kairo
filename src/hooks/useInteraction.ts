@@ -23,26 +23,26 @@ export const useInteraction = (
     setPan: React.Dispatch<React.SetStateAction<{ x: number; y: number; }>>,
     zoom: number,
     moveBoxes: (id: string, newX: number, newY: number) => Promise<void>,
-    addConnection: (from: string, to: string) => Promise<void>
+    moveSelectedBoxes: (deltaX: number, deltaY: number) => Promise<void>,
+    addConnection: (from: string, to: string) => Promise<void>,
+    toggleBoxSelection: (id: string) => Promise<void>,
+    clearSelection: () => Promise<void>
 ) => {
     const mouseDownRef = useRef<MouseDownState | null>(null);
     const initialPanRef = useRef({ x: 0, y: 0 });
     const moveRequestRef = useRef<number | null>(null);
-    const latestMoveDataRef = useRef<{ boxId: string, newX: number, newY: number } | null>(null);
+    const latestMoveDataRef = useRef<{ boxId: string, newX: number, newY: number, startX: number, startY: number } | null>(null);
     const [draggingBox, setDraggingBox] = useState<{
         boxId: string;
         offsetX: number;
         offsetY: number;
     } | null>(null);
-    const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
     const [newBoxPreview, setNewBoxPreview] = useState<BoxPreview | null>(null);
     const [hoveredDeleteButton, setHoveredDeleteButton] = useState<string | null>(null);
     const [isPanning, setIsPanning] = useState(false);
 
     const lastClickTime = useRef(0);
     
-    const selectedBox = boxes.find(b => b.id === selectedBoxId);
-
     const screenToWorld = useCallback((screenX: number, screenY: number) => {
         const worldX = (screenX - pan.x) / zoom;
         const worldY = (screenY - pan.y) / zoom;
@@ -56,11 +56,14 @@ export const useInteraction = (
         const gridY = Math.floor(worldY / GRID_CONSTANTS.gridSize);
         
         const clickedBox = findBoxAt(gridX, gridY);
+        const selectedBoxes = boxes.filter(b => b.selected);
 
         if (e.button === 2) { // Right mouse button
-            if (selectedBoxId && clickedBox && clickedBox.id !== selectedBoxId) {
-                addConnection(selectedBoxId, clickedBox.id);
+            if (selectedBoxes.length === 1 && clickedBox && clickedBox.id !== selectedBoxes[0].id) {
+                addConnection(selectedBoxes[0].id, clickedBox.id);
             }
+            // Always prevent context menu on right click for now
+            e.preventDefault();
             return;
         }
         
@@ -100,6 +103,7 @@ export const useInteraction = (
         }
         lastClickTime.current = now;
 
+        // General click handling
         mouseDownRef.current = {
             time: now,
             x: worldX,
@@ -109,8 +113,31 @@ export const useInteraction = (
             boxId: clickedBox?.id || null,
         };
 
-        if (clickedBox && clickedBox.id !== selectedBoxId) {
-            setSelectedBoxId(null);
+        if (e.ctrlKey) {
+            // With ctrl, we don't want to drag, just select.
+            // So we toggle selection and prevent drag by clearing mouseDownRef
+            if (clickedBox) {
+                toggleBoxSelection(clickedBox.id);
+                mouseDownRef.current = null;
+            }
+        } else {
+            // Without ctrl
+            if (clickedBox) {
+                // if the clicked box is not selected, we clear previous selection
+                // and select only the clicked one.
+                if (!clickedBox.selected) {
+                    clearSelection().then(() => {
+                        toggleBoxSelection(clickedBox.id);
+                    });
+                }
+                // If it's already selected (part of a group or single), 
+                // we do nothing, allowing a drag to be initiated.
+            } else {
+                // Clicked on empty space, clear all selection
+                if (selectedBoxes.length > 0) {
+                   clearSelection();
+                }
+            }
         }
     };
 
@@ -127,12 +154,15 @@ export const useInteraction = (
 
         const rect = e.currentTarget.getBoundingClientRect();
         const { worldX, worldY } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+        const selectedBoxes = boxes.filter(b => b.selected);
+        const selectedBox = selectedBoxes.length === 1 ? selectedBoxes[0] : null;
+
 
         if (!mouseDownRef.current) {
             let isHoveringOnDeleteButton = false;
-
+            
             if (selectedBox) {
-                 const box = selectedBox;
+                const box = selectedBox;
                 const rectX = box.x * GRID_CONSTANTS.gridSize;
                 const rectY = box.y * GRID_CONSTANTS.gridSize;
                 const rectW = box.width * GRID_CONSTANTS.gridSize;
@@ -164,15 +194,18 @@ export const useInteraction = (
         if (distance < DRAG_THRESHOLD) {
             return;
         }
-
+        
+        // Start dragging
         if (mouseDownRef.current.boxId && !draggingBox) {
             const box = boxes.find(b => b.id === mouseDownRef.current!.boxId)!;
+
+            // This logic is now in mouseDown. If a box is selected, we can drag.
+            // If we are here, it means the clicked box is selected (or just became selected).
             setDraggingBox({
                 boxId: mouseDownRef.current.boxId,
                 offsetX: mouseDownRef.current.gridX - box.x,
                 offsetY: mouseDownRef.current.gridY - box.y,
             });
-            setSelectedBoxId(null);
         }
 
         if (draggingBox) {
@@ -180,32 +213,55 @@ export const useInteraction = (
             
             const newGridX = Math.round((worldX / GRID_CONSTANTS.gridSize) - draggingBox.offsetX);
             const newGridY = Math.round((worldY / GRID_CONSTANTS.gridSize) - draggingBox.offsetY);
+            
+            const originalBox = boxes.find(b => b.id === draggingBox.boxId);
+            if (!originalBox) return;
 
-            // Store the latest data and schedule a single update per frame.
-            latestMoveDataRef.current = { boxId: draggingBox.boxId, newX: newGridX, newY: newGridY };
+            latestMoveDataRef.current = { 
+                boxId: draggingBox.boxId, 
+                newX: newGridX, newY: newGridY,
+                startX: originalBox.x, startY: originalBox.y
+            };
 
             if (!moveRequestRef.current) {
                 moveRequestRef.current = requestAnimationFrame(() => {
                     if (latestMoveDataRef.current) {
-                        const { boxId, newX, newY } = latestMoveDataRef.current;
-                        moveBoxes(boxId, newX, newY);
+                        const { boxId, newX, newY, startX, startY } = latestMoveDataRef.current;
+                        const draggedBox = boxes.find(b => b.id === boxId);
+
+                        if (draggedBox?.selected) {
+                            const deltaX = newX - startX;
+                            const deltaY = newY - startY;
+                            if (deltaX !== 0 || deltaY !== 0) {
+                                moveSelectedBoxes(deltaX, deltaY);
+                            }
+                        } else {
+                            moveBoxes(boxId, newX, newY);
+                        }
                     }
-                    moveRequestRef.current = null; // Allow next frame to be scheduled
+                    moveRequestRef.current = null; 
                 });
             }
         }
     };
 
     const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-        // Ensure any pending move request is cancelled
         if (moveRequestRef.current) {
             cancelAnimationFrame(moveRequestRef.current);
             moveRequestRef.current = null;
         }
-        // And send the final position
         if (latestMoveDataRef.current) {
-            const { boxId, newX, newY } = latestMoveDataRef.current;
-            moveBoxes(boxId, newX, newY);
+            const { boxId, newX, newY, startX, startY } = latestMoveDataRef.current;
+            const draggedBox = boxes.find(b => b.id === boxId);
+            if (draggedBox?.selected) {
+                const deltaX = newX - startX;
+                const deltaY = newY - startY;
+                 if (deltaX !== 0 || deltaY !== 0) {
+                    moveSelectedBoxes(deltaX, deltaY);
+                }
+            } else {
+                moveBoxes(boxId, newX, newY);
+            }
             latestMoveDataRef.current = null;
         }
 
@@ -216,7 +272,6 @@ export const useInteraction = (
         }
 
         const DRAG_THRESHOLD = 5;
-        const now = Date.now();
 
         if (mouseDownRef.current) {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -226,14 +281,16 @@ export const useInteraction = (
                 Math.pow(worldX - mouseDownRef.current.x, 2) +
                 Math.pow(worldY - mouseDownRef.current.y, 2)
             );
-
+            
+            // This was a click, not a drag
             if (distance < DRAG_THRESHOLD) {
                 const clickedBox = findBoxAt(mouseDownRef.current.gridX, mouseDownRef.current.gridY);
-                if (clickedBox) {
-                    setSelectedBoxId(clickedBox.id);
+                const selectedBoxes = boxes.filter(b => b.selected);
+
+                // We only trigger onBoxClick if there's exactly one selected box after the click
+                // and that box was the one that was clicked.
+                if (clickedBox && selectedBoxes.length === 1 && selectedBoxes[0].id === clickedBox.id) {
                     onBoxClick(clickedBox, worldX, worldY);
-                } else {
-                    setSelectedBoxId(null);
                 }
             }
         }
@@ -244,35 +301,20 @@ export const useInteraction = (
     };
 
     const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const { worldX, worldY } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-        const gridX = Math.floor(worldX / GRID_CONSTANTS.gridSize);
-        const gridY = Math.floor(worldY / GRID_CONSTANTS.gridSize);
-        const clickedBox = findBoxAt(gridX, gridY);
-
-        if (selectedBoxId && clickedBox && clickedBox.id !== selectedBoxId) {
-            e.preventDefault(); // Prevent context menu ONLY when creating a connection
-        }
+        // The logic is now in handleMouseDown, but we might need to prevent
+        // the menu in other cases too. For now, this is simpler.
+        // It's already handled in onMouseDown, but let's prevent it here too for safety.
+        e.preventDefault();
     };
-    
-    useEffect(() => {
-        // Cleanup on unmount
-        return () => {
-            if (moveRequestRef.current) {
-                cancelAnimationFrame(moveRequestRef.current);
-            }
-        };
-    }, []);
 
-    return {
-        selectedBoxId,
-        selectedBox,
-        newBoxPreview,
-        handleMouseDown,
-        handleMouseMove,
-        handleMouseUp,
+    return { 
+        handleMouseDown, 
+        handleMouseMove, 
+        handleMouseUp, 
+        handleContextMenu,
+        draggingBox, 
+        newBoxPreview, 
         hoveredDeleteButton,
         isPanning,
-        handleContextMenu
     };
 }; 

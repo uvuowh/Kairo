@@ -295,10 +295,10 @@ export const useCanvasDrawing = (
             } else {
                 ctx.fillStyle = isDarkMode ? "rgba(40, 40, 40, 0.8)" : "rgba(255, 255, 255, 0.8)";
                 ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
-                ctx.lineWidth = 1;
-
-                roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
-                ctx.fill();
+            ctx.lineWidth = 1;
+            
+            roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
+            ctx.fill();
                 ctx.stroke();
 
                 // Draw grid inside the box
@@ -328,13 +328,15 @@ export const useCanvasDrawing = (
 
                 renderTextInBox(ctx, box, isDarkMode);
 
-                if (selectedBoxId === box.id) {
+                if (box.selected) {
                     ctx.strokeStyle = '#007AFF'; // A nice blue for selection
                     ctx.lineWidth = 2 / zoom;
                     roundRect(ctx, rectX - 1, rectY - 1, rectW + 2, rectH + 2, borderRadius + 1);
                     ctx.stroke();
+                }
 
-                    // Draw delete handle
+                if (selectedBoxId === box.id) {
+                    // Draw delete handle only for a single selected box
                     const deleteHandleCenterX = rectX + rectW;
                     const deleteHandleCenterY = rectY;
                     ctx.beginPath();
@@ -344,15 +346,6 @@ export const useCanvasDrawing = (
                 }
             }
         });
-
-        if (cursor && cursor.boxId === selectedBoxId && isCursorVisible) {
-            const box = boxes.find(b => b.id === cursor.boxId);
-            if (box) {
-                const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
-                ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
-                ctx.fillRect(pixelX, pixelY, 1 / zoom, FONT_SIZE);
-            }
-        }
 
         if (newBoxPreview) {
             ctx.strokeStyle = "rgba(0, 100, 255, 0.8)";
@@ -368,7 +361,100 @@ export const useCanvasDrawing = (
         }
 
         ctx.restore();
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, cursor, hoveredDeleteButton, pan, zoom, isCursorVisible, connections]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, hoveredDeleteButton, pan, zoom, connections]);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx || !cursor || cursor.boxId !== selectedBoxId) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const box = boxes.find(b => b.id === cursor.boxId);
+        if (!box) return;
+
+        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
+        const cursorWidth = 1;
+        const cursorHeight = FONT_SIZE;
+
+        // Save the state of the context
+        ctx.save();
+        
+        // Apply the same transformations as the main draw function
+        ctx.scale(dpr * zoom, dpr * zoom);
+        ctx.translate(pan.x / zoom, pan.y / zoom);
+
+        // Define the small area to clear and redraw
+        const clearX = pixelX;
+        const clearY = pixelY;
+        const clearW = cursorWidth / zoom;
+        const clearH = cursorHeight;
+        
+        // Clear the small rectangle for the cursor
+        ctx.clearRect(clearX, clearY, clearW, clearH);
+
+        // Redraw the grid in that small area
+        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
+        ctx.lineWidth = 1 / zoom;
+
+        const gridStartX = Math.floor(clearX / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridEndX = Math.ceil((clearX + clearW) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridStartY = Math.floor(clearY / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+        const gridEndY = Math.ceil((clearY + clearH) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
+
+        for (let x = gridStartX; x < gridEndX; x += GRID_CONSTANTS.gridSize) {
+            if (x >= clearX && x <= clearX + clearW) {
+                ctx.beginPath();
+                ctx.moveTo(x, clearY);
+                ctx.lineTo(x, clearY + clearH);
+                ctx.stroke();
+            }
+        }
+        for (let y = gridStartY; y < gridEndY; y += GRID_CONSTANTS.gridSize) {
+             if (y >= clearY && y <= clearY + clearH) {
+                ctx.beginPath();
+                ctx.moveTo(clearX, y);
+                ctx.lineTo(clearX + clearW, y);
+                ctx.stroke();
+             }
+        }
+
+        // Redraw the part of the box that's under the cursor
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(clearX, clearY, clearW, clearH);
+        ctx.clip();
+        
+        const rectX = box.x * GRID_CONSTANTS.gridSize;
+        const rectY = box.y * GRID_CONSTANTS.gridSize;
+        const rectW = box.width * GRID_CONSTANTS.gridSize;
+        const rectH = box.height * GRID_CONSTANTS.gridSize;
+        const borderRadius = 4;
+
+        ctx.fillStyle = isDarkMode ? "rgba(40, 40, 40, 0.8)" : "rgba(255, 255, 255, 0.8)";
+        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
+        ctx.lineWidth = 1;
+
+        roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
+        ctx.fill();
+        ctx.stroke();
+        renderTextInBox(ctx, box, isDarkMode);
+        
+        ctx.restore();
+
+
+        // Finally, if the cursor should be visible, draw it.
+        if (isCursorVisible) {
+            ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+            ctx.fillRect(pixelX, pixelY, cursorWidth / zoom, cursorHeight);
+        }
+
+        // Restore the context to its original state
+        ctx.restore();
+
+    }, [isCursorVisible, cursor, selectedBoxId, boxes, pan, zoom, canvasRef]);
 
     return { draw, getCursorIndexFromClick };
 }; 

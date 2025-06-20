@@ -72,5 +72,32 @@ export const useCanvas = () => {
         }
     }, []);
 
-    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection };
+    const toggleBoxSelection = useCallback(async (id: string) => {
+        try {
+            const updatedState = await invoke<CanvasState>('toggle_box_selection', { id });
+            setCanvasState(updatedState);
+        } catch (e) {
+            console.error("Failed to toggle box selection", e);
+        }
+    }, []);
+
+    const clearSelection = useCallback(async () => {
+        try {
+            const updatedState = await invoke<CanvasState>('clear_selection');
+            setCanvasState(updatedState);
+        } catch (e) {
+            console.error("Failed to clear selection", e);
+        }
+    }, []);
+
+    const moveSelectedBoxes = useCallback(async (deltaX: number, deltaY: number) => {
+        try {
+            const updatedState = await invoke<CanvasState>('move_selected_boxes', { deltaX, deltaY });
+            setCanvasState(updatedState);
+        } catch (e) {
+            console.error("Failed to move selected boxes", e);
+        }
+    }, []);
+
+    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection, toggleBoxSelection, clearSelection, moveSelectedBoxes };
 }; 

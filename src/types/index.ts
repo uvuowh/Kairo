@@ -5,6 +5,7 @@ export interface Box {
   width: number;
   height: number;
   text: string;
+  selected?: boolean;
 }
 
 export interface Connection {
