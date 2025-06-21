@@ -8,30 +8,31 @@ type Cursor = {
 };
 
 const FONT_SIZE = 16;
-const FONT_FAMILY = '"Courier New", Courier, monospace';
+const FONT_FAMILY = "'Maple Mono NF CN', 'Courier New', Courier, monospace";
 const PADDING = 2;
 const LINE_HEIGHT = GRID_CONSTANTS.gridSize;
 export const DELETE_HANDLE_RADIUS = 4;
 
-const getCharWidth = (char: string): number => {
+const getCharWidthForDrawing = (char: string): number => {
+    // This is for drawing, so it should be pixel-based, not grid based.
     // Half-width for ASCII letters, numbers, and common punctuation
     if (/[a-zA-Z0-9]/.test(char) || /[\s.,!?;:'"(){}[\]<>\-_+=@#$%^&*|\\/]/.test(char)) {
-        return GRID_CONSTANTS.gridSize / 2;
+        return GRID_CONSTANTS.gridSize / 2; // Assuming 1 grid = 16px, so half is 8px
     }
     // Full-width for CJK characters and full-width symbols
     else if (/[\u4e00-\u9fa5\uff00-\uffef\u3000-\u303f]/.test(char)) {
-        return GRID_CONSTANTS.gridSize;
+        return GRID_CONSTANTS.gridSize; // 16px
     }
     // Default other symbols to full-width
     else {
-        return GRID_CONSTANTS.gridSize;
+        return GRID_CONSTANTS.gridSize; // 16px
     }
 };
 
-const calculateCustomTextWidth = (text: string): number => {
+const calculateTextWidthForDrawing = (text: string): number => {
     let width = 0;
     for (const char of text) {
-        width += getCharWidth(char);
+        width += getCharWidthForDrawing(char);
     }
     return width;
 };
@@ -61,7 +62,7 @@ const getCursorPixelPosition = (
     const cursorLineIndex = lines.length > 0 ? lines.length - 1 : 0;
     const textOnCursorLine = lines[cursorLineIndex] || '';
     
-    const pixelX = box.x * GRID_CONSTANTS.gridSize + calculateCustomTextWidth(textOnCursorLine);
+    const pixelX = box.x * GRID_CONSTANTS.gridSize + calculateTextWidthForDrawing(textOnCursorLine);
     const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
     return { pixelX, pixelY, cursorLineIndex };
 };
@@ -85,7 +86,7 @@ const renderTextInBox = (
         
         for (const char of line) {
             ctx.fillText(char, drawX, drawY);
-            drawX += getCharWidth(char);
+            drawX += getCharWidthForDrawing(char);
         }
     });
 };
@@ -109,7 +110,7 @@ const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidt
             const word = words[i];
 
             // First, check if the word itself is wider than the box.
-            if (calculateCustomTextWidth(word) > boxWidthInPixels) {
+            if (calculateTextWidthForDrawing(word) > boxWidthInPixels) {
                 // If so, it needs to be broken up character by character.
                 // But first, push whatever was on the current line.
                 if (currentLine) {
@@ -120,7 +121,7 @@ const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidt
                 let tempLine = '';
                 for (const char of word) {
                     const lineWithChar = tempLine + char;
-                    if (calculateCustomTextWidth(lineWithChar) > boxWidthInPixels) {
+                    if (calculateTextWidthForDrawing(lineWithChar) > boxWidthInPixels) {
                         allLines.push(tempLine);
                         tempLine = char;
                     } else {
@@ -131,7 +132,7 @@ const breakTextIntoLines = (ctx: CanvasRenderingContext2D, text: string, boxWidt
             } else {
                 // If the word fits on a line by itself, see if it fits on the current one.
                 const lineWithWord = currentLine ? `${currentLine} ${word}` : word;
-                if (calculateCustomTextWidth(lineWithWord) > boxWidthInPixels) {
+                if (calculateTextWidthForDrawing(lineWithWord) > boxWidthInPixels) {
                     // Doesn't fit, so push the old line and start a new one.
                     allLines.push(currentLine);
                     currentLine = word;
@@ -157,7 +158,7 @@ export const calculateSizeForText = (ctx: CanvasRenderingContext2D, text: string
     let maxLineWidth = 0;
     
     for (const line of lines) {
-        const lineWidth = calculateCustomTextWidth(line);
+        const lineWidth = calculateTextWidthForDrawing(line);
         if (lineWidth > maxLineWidth) {
             maxLineWidth = lineWidth;
         }
@@ -172,6 +173,36 @@ export const calculateSizeForText = (ctx: CanvasRenderingContext2D, text: string
 
     return { width: widthInGrids, height: heightInGrids };
 };
+
+export const calculateSizeForTextWithMonoFont = (text: string): { width: number, height: number } => {
+    if (!text) {
+        return { width: 2, height: 1 }; // Default size for empty box
+    }
+
+    const lines = text.split('\n');
+    let maxChars = 0;
+    
+    for (const line of lines) {
+        let charCount = 0;
+        for (const char of line) {
+            // Half-width for ASCII
+            if (char.charCodeAt(0) >= 0 && char.charCodeAt(0) <= 127) {
+                charCount += 0.5;
+            } else { // Full-width for others
+                charCount += 1;
+            }
+        }
+        if (charCount > maxChars) {
+            maxChars = charCount;
+        }
+    }
+    
+    // Each grid cell is assumed to hold two half-width characters (like in getCharWidthForDrawing).
+    const widthInGrids = Math.max(2, Math.ceil(maxChars));
+    const heightInGrids = Math.max(1, lines.length);
+
+    return { width: widthInGrids, height: heightInGrids };
+}
 
 export const useCanvasDrawing = (
     canvasRef: RefObject<HTMLCanvasElement>, 

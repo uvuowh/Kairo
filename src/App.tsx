@@ -3,7 +3,7 @@ import "./App.css";
 import { GRID_CONSTANTS, Box, CanvasState } from "./types";
 import { useCanvas } from "./hooks/useCanvas";
 import { useInteraction } from "./hooks/useInteraction";
-import { useCanvasDrawing, calculateSizeForText } from "./hooks/useCanvasDrawing";
+import { useCanvasDrawing, calculateSizeForTextWithMonoFont } from "./hooks/useCanvasDrawing";
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from "@tauri-apps/api/core";
@@ -259,7 +259,7 @@ function App() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     
-    const { width, height } = calculateSizeForText(ctx, newText);
+    const { width, height } = calculateSizeForTextWithMonoFont(newText);
     updateBox(selectedBoxId, newText, width, height);
     setCursor({ boxId: selectedBoxId, index: newCursorIndex });
   };

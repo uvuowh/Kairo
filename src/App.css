@@ -1,3 +1,115 @@
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-Italic.ttf') format('truetype');
+  font-weight: normal;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-Bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-BoldItalic.ttf') format('truetype');
+  font-weight: bold;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-LightItalic.ttf') format('truetype');
+  font-weight: 300;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-Thin.ttf') format('truetype');
+  font-weight: 100;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-ThinItalic.ttf') format('truetype');
+  font-weight: 100;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-ExtraLight.ttf') format('truetype');
+  font-weight: 200;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-ExtraLightItalic.ttf') format('truetype');
+  font-weight: 200;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-MediumItalic.ttf') format('truetype');
+  font-weight: 500;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-SemiBoldItalic.ttf') format('truetype');
+  font-weight: 600;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Maple Mono NF CN';
+  src: url('./assets/maple/MapleMono-NF-CN-ExtraBoldItalic.ttf') format('truetype');
+  font-weight: 800;
+  font-style: italic;
+}
+
 body, html, #root {
   width: 100%;
   height: 100%;
@@ -8,7 +120,7 @@ body, html, #root {
 }
 
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Maple Mono NF CN', Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 24px;
   font-weight: 400;
