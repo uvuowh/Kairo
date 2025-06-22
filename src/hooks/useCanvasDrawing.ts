@@ -204,6 +204,125 @@ export const calculateSizeForTextWithMonoFont = (text: string): { width: number,
     return { width: widthInGrids, height: heightInGrids };
 }
 
+const getEdgeIntersectionPoint = (
+    box: Box,
+    outsidePoint: { x: number, y: number }
+): { x: number, y: number } => {
+    const boxCenterX = (box.x + box.width / 2) * GRID_CONSTANTS.gridSize;
+    const boxCenterY = (box.y + box.height / 2) * GRID_CONSTANTS.gridSize;
+
+    const dx = outsidePoint.x - boxCenterX;
+    const dy = outsidePoint.y - boxCenterY;
+
+    if (dx === 0 && dy === 0) return { x: boxCenterX, y: boxCenterY };
+
+    const halfWidth = (box.width / 2) * GRID_CONSTANTS.gridSize;
+    const halfHeight = (box.height / 2) * GRID_CONSTANTS.gridSize;
+
+    const slope = Math.abs(dy / dx);
+    const boxSlope = halfHeight / halfWidth;
+
+    let x, y;
+
+    if (slope < boxSlope) {
+        if (dx > 0) {
+            x = boxCenterX + halfWidth;
+            y = boxCenterY + halfWidth * (dy / dx);
+        } else {
+            x = boxCenterX - halfWidth;
+            y = boxCenterY - halfWidth * (dy / dx);
+        }
+    } else {
+        if (dy > 0) {
+            y = boxCenterY + halfHeight;
+            x = boxCenterX + halfHeight * (dx / dy);
+        } else {
+            y = boxCenterY - halfHeight;
+            x = boxCenterX - halfHeight * (dx / dy);
+        }
+    }
+
+    return { x, y };
+};
+
+enum PortDirection { Top, Right, Bottom, Left }
+
+interface ConnectionPoint {
+    x: number;
+    y: number;
+    direction: PortDirection;
+}
+
+const getBestConnectionPoints = (
+    fromBox: Box,
+    toBox: Box
+): { start: ConnectionPoint, end: ConnectionPoint } => {
+    const fromCenterX = fromBox.x + fromBox.width / 2;
+    const fromCenterY = fromBox.y + fromBox.height / 2;
+    const toCenterX = toBox.x + toBox.width / 2;
+    const toCenterY = toBox.y + toBox.height / 2;
+
+    const dx = toCenterX - fromCenterX;
+    const dy = toCenterY - fromCenterY;
+
+    let fromDirection: PortDirection;
+    if (Math.abs(dx) > Math.abs(dy)) {
+        fromDirection = dx > 0 ? PortDirection.Right : PortDirection.Left;
+    } else {
+        fromDirection = dy > 0 ? PortDirection.Bottom : PortDirection.Top;
+    }
+
+    let toDirection: PortDirection;
+    if (Math.abs(dx) > Math.abs(dy)) {
+        toDirection = dx > 0 ? PortDirection.Left : PortDirection.Right;
+    } else {
+        toDirection = dy > 0 ? PortDirection.Top : PortDirection.Bottom;
+    }
+
+    const getCoords = (box: Box, dir: PortDirection): { x: number, y: number } => {
+        const halfW = (box.width / 2) * GRID_CONSTANTS.gridSize;
+        const halfH = (box.height / 2) * GRID_CONSTANTS.gridSize;
+        const centerX = (box.x + box.width / 2) * GRID_CONSTANTS.gridSize;
+        const centerY = (box.y + box.height / 2) * GRID_CONSTANTS.gridSize;
+        switch (dir) {
+            case PortDirection.Top: return { x: centerX, y: centerY - halfH };
+            case PortDirection.Right: return { x: centerX + halfW, y: centerY };
+            case PortDirection.Bottom: return { x: centerX, y: centerY + halfH };
+            case PortDirection.Left: return { x: centerX - halfW, y: centerY };
+        }
+    };
+
+    return {
+        start: { ...getCoords(fromBox, fromDirection), direction: fromDirection },
+        end: { ...getCoords(toBox, toDirection), direction: toDirection },
+    };
+};
+
+const calculateCurveControlPoints = (
+    start: ConnectionPoint,
+    end: ConnectionPoint
+): { cp1: { x: number, y: number }, cp2: { x: number, y: number } } => {
+    const offset = 60;
+    let cp1 = { ...start };
+    let cp2 = { ...end };
+
+    switch (start.direction) {
+        case PortDirection.Top: cp1.y -= offset; break;
+        case PortDirection.Right: cp1.x += offset; break;
+        case PortDirection.Bottom: cp1.y += offset; break;
+        case PortDirection.Left: cp1.x -= offset; break;
+    }
+
+    switch (end.direction) {
+        case PortDirection.Top: cp2.y -= offset; break;
+        case PortDirection.Right: cp2.x += offset; break;
+        case PortDirection.Bottom: cp2.y += offset; break;
+        case PortDirection.Left: cp2.x -= offset; break;
+    }
+
+    return { cp1, cp2 };
+}
+
 export const useCanvasDrawing = (
     canvasRef: RefObject<HTMLCanvasElement>, 
     boxes: Box[],
@@ -318,24 +437,20 @@ export const useCanvasDrawing = (
         connections.forEach(connection => {
             const fromBox = boxes.find(b => b.id === connection.from);
             const toBox = boxes.find(b => b.id === connection.to);
-
             if (fromBox && toBox) {
-                const fromX = (fromBox.x + fromBox.width / 2) * GRID_CONSTANTS.gridSize;
-                const fromY = (fromBox.y + fromBox.height / 2) * GRID_CONSTANTS.gridSize;
-                const toX = (toBox.x + toBox.width / 2) * GRID_CONSTANTS.gridSize;
-                const toY = (toBox.y + toBox.height / 2) * GRID_CONSTANTS.gridSize;
-                
+                const { start: startPoint, end: endPoint } = getBestConnectionPoints(fromBox, toBox);
+                const { cp1, cp2 } = calculateCurveControlPoints(startPoint, endPoint);
+
                 ctx.beginPath();
-                ctx.moveTo(fromX, fromY);
-                ctx.lineTo(toX, toY);
+                ctx.moveTo(startPoint.x, startPoint.y);
+                ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, endPoint.x, endPoint.y);
                 ctx.stroke();
 
-                // Draw arrowheads based on connection type
                 if (connection.type === ConnectionType.Forward || connection.type === ConnectionType.Bidirectional) {
-                    drawArrowhead(ctx, fromX, fromY, toX, toY, 10);
+                    drawArrowhead(ctx, cp2.x, cp2.y, endPoint.x, endPoint.y, 10);
                 }
                 if (connection.type === ConnectionType.Bidirectional) {
-                    drawArrowhead(ctx, toX, toY, fromX, fromY, 10);
+                    drawArrowhead(ctx, cp1.x, cp1.y, startPoint.x, startPoint.y, 10);
                 }
             }
         });
