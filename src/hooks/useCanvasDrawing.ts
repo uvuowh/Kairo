@@ -1,5 +1,5 @@
 import { RefObject, useCallback, useEffect, useState } from 'react';
-import { Box, Connection, GRID_CONSTANTS, SelectionArea } from '../types';
+import { Box, Connection, ConnectionType, GRID_CONSTANTS, SelectionArea } from '../types';
 import { BoxPreview } from './useInteraction';
 
 type Cursor = {
@@ -244,6 +244,23 @@ export const useCanvasDrawing = (
         return closestIndex;
     }, [canvasRef]);
 
+    const drawArrowhead = (ctx: CanvasRenderingContext2D, fromX: number, fromY: number, toX: number, toY: number, arrowSize: number) => {
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        
+        ctx.save();
+        ctx.beginPath();
+        ctx.translate(toX, toY);
+        ctx.rotate(angle);
+        
+        ctx.moveTo(0, 0);
+        ctx.lineTo(-arrowSize, -arrowSize / 2);
+        ctx.lineTo(-arrowSize, arrowSize / 2);
+        ctx.closePath();
+        
+        ctx.restore();
+        ctx.fill();
+    };
+
     const draw = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -294,11 +311,13 @@ export const useCanvasDrawing = (
         }
         
         // Draw connections underneath boxes
-        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)";
-        ctx.lineWidth = 2 / zoom;
-        connections.forEach(conn => {
-            const fromBox = boxes.find(b => b.id === conn.from);
-            const toBox = boxes.find(b => b.id === conn.to);
+        ctx.strokeStyle = isDarkMode ? '#555' : '#ccc';
+        ctx.lineWidth = 2;
+        ctx.fillStyle = isDarkMode ? '#aaa' : '#555'; // For arrowheads
+
+        connections.forEach(connection => {
+            const fromBox = boxes.find(b => b.id === connection.from);
+            const toBox = boxes.find(b => b.id === connection.to);
 
             if (fromBox && toBox) {
                 const fromX = (fromBox.x + fromBox.width / 2) * GRID_CONSTANTS.gridSize;
@@ -310,6 +329,14 @@ export const useCanvasDrawing = (
                 ctx.moveTo(fromX, fromY);
                 ctx.lineTo(toX, toY);
                 ctx.stroke();
+
+                // Draw arrowheads based on connection type
+                if (connection.type === ConnectionType.Forward || connection.type === ConnectionType.Bidirectional) {
+                    drawArrowhead(ctx, fromX, fromY, toX, toY, 10);
+                }
+                if (connection.type === ConnectionType.Bidirectional) {
+                    drawArrowhead(ctx, toX, toY, fromX, fromY, 10);
+                }
             }
         });
 

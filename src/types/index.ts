@@ -8,9 +8,16 @@ export interface Box {
   selected?: boolean;
 }
 
+export enum ConnectionType {
+  None = "None",
+  Forward = "Forward",
+  Bidirectional = "Bidirectional",
+}
+
 export interface Connection {
   from: string;
   to: string;
+  type: ConnectionType;
 }
 
 export interface CanvasState {

@@ -5,6 +5,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 use tauri::{Emitter, State, Wry, Builder};
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionType {
+    None,
+    Forward,
+    Bidirectional,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct BoundingBox {
     x: i32,
@@ -28,6 +35,7 @@ pub struct Box {
 pub struct Connection {
     pub from: String,
     pub to: String,
+    pub r#type: ConnectionType,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -86,7 +94,7 @@ fn add_connection(state: State<AppState>, from: String, to: String) {
     );
 
     if !connection_exists {
-        canvas_state.connections.push(Connection { from, to });
+        canvas_state.connections.push(Connection { from, to, r#type: ConnectionType::Forward });
     }
 }
 
@@ -116,29 +124,70 @@ fn select_boxes(state: State<AppState>, ids: Vec<String>) {
 }
 
 #[tauri::command]
-fn add_multiple_connections(state: State<AppState>, from_ids: Vec<String>, to_id: String) {
+fn toggle_connections(state: State<AppState>, from_ids: Vec<String>, to_id: String) -> CanvasState {
     let mut canvas_state = state.canvas_state.lock().unwrap();
-    let existing_connections: HashSet<(String, String)> = canvas_state.connections.iter().map(|c| {
-        let mut pair = [c.from.clone(), c.to.clone()];
-        pair.sort();
-        (pair[0].clone(), pair[1].clone())
-    }).collect();
 
     for from_id in from_ids {
         if from_id == to_id {
-            continue; // Prevent self-connection
+            continue;
         }
 
-        let mut new_pair = [from_id.clone(), to_id.clone()];
-        new_pair.sort();
-        let new_conn_tuple = (new_pair[0].clone(), new_pair[1].clone());
+        let connection_index = canvas_state.connections.iter().position(|c|
+            (&c.from == &from_id && &c.to == &to_id) || (&c.from == &to_id && &c.to == &from_id)
+        );
 
-        if !existing_connections.contains(&new_conn_tuple) {
+        if let Some(index) = connection_index {
+            // Connection exists, toggle its state.
+            let mut conn = canvas_state.connections.remove(index);
+
+            if conn.r#type == ConnectionType::Bidirectional {
+                // Downgrade to a single connection in the opposite direction of the action.
+                conn.from = to_id.clone();
+                conn.to = from_id;
+                conn.r#type = ConnectionType::Forward;
+                canvas_state.connections.push(conn);
+            } else if conn.r#type == ConnectionType::Forward {
+                if conn.from == from_id {
+                    // Action A->B on existing A->B connection: remove.
+                } else { // conn.from == to_id
+                    // Action A->B on existing B->A connection: upgrade.
+                    conn.r#type = ConnectionType::Bidirectional;
+                    canvas_state.connections.push(conn);
+                }
+            } else { // conn.r#type == ConnectionType::None
+                // It was a connection with no direction, now it gets one.
+                conn.from = from_id;
+                conn.to = to_id.clone();
+                conn.r#type = ConnectionType::Forward;
+                canvas_state.connections.push(conn);
+            }
+        } else {
+            // No connection exists, create a new one.
             canvas_state.connections.push(Connection {
                 from: from_id,
                 to: to_id.clone(),
+                r#type: ConnectionType::Forward,
             });
         }
+    }
+
+    canvas_state.clone()
+}
+
+#[tauri::command]
+fn cycle_connection_type(state: State<AppState>, from: String, to: String) -> Option<Connection> {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    if let Some(connection) = canvas_state.connections.iter_mut().find(|c| 
+        (c.from == from && c.to == to) || (c.from == to && c.to == from)
+    ) {
+        connection.r#type = match connection.r#type {
+            ConnectionType::None => ConnectionType::Forward,
+            ConnectionType::Forward => ConnectionType::Bidirectional,
+            ConnectionType::Bidirectional => ConnectionType::None,
+        };
+        Some(connection.clone())
+    } else {
+        None
     }
 }
 
@@ -373,7 +422,8 @@ impl AppBuilder {
             toggle_box_selection,
             clear_selection,
                 select_boxes,
-                add_multiple_connections,
+                toggle_connections,
+            cycle_connection_type,
             move_box,
             move_selected_boxes,
             load_new_state,

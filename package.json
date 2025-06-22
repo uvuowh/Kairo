@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "vite",
-    "dev": "fkill :1420 --silent ; concurrently --names \"VITE,TAURI\" -c \"bgBlue.bold,bgMagenta.bold\" \"pnpm start\" \"tauri dev\"",
+    "dev": "fkill :1420 --silent ; concurrently --names \"VITE,TAURI\" -c \"bgBlue.bold,bgMagenta.bold\" \"pnpm start\" \"pnpm tauri dev\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"

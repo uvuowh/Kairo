@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Box, MouseDownState, GRID_CONSTANTS, SelectionArea } from '../types';
+import { Box, Connection, MouseDownState, GRID_CONSTANTS, SelectionArea } from '../types';
 import { isPreviewCollidingWithAny, doBoxesIntersect } from '../utils/collision';
 import { DELETE_HANDLE_RADIUS } from '../hooks/useCanvasDrawing';
 
@@ -12,7 +12,7 @@ export interface BoxPreview {
 
 export const useInteraction = (
     boxes: Box[], 
-    setBoxes: (boxes: Box[]) => void,
+    connections: Connection[],
     findBoxAt: (gridX: number, gridY: number) => Box | undefined,
     addBox: (box: Omit<Box, 'id' | 'text'>) => void,
     onBoxClick: (box: Box, worldX: number, worldY: number) => void,
@@ -25,7 +25,8 @@ export const useInteraction = (
     moveBoxes: (id: string, newX: number, newY: number) => Promise<void>,
     moveSelectedBoxes: (deltaX: number, deltaY: number) => Promise<void>,
     addConnection: (from: string, to: string) => Promise<void>,
-    addMultipleConnections: (fromIds: string[], toId: string) => Promise<void>,
+    toggleConnections: (fromIds: string[], toId: string) => Promise<void>,
+    cycleConnectionType: (from: string, to: string) => Promise<void>,
     selectBoxes: (ids: string[]) => Promise<void>,
     toggleBoxSelection: (id: string) => Promise<void>,
     clearSelection: () => Promise<void>
@@ -46,6 +47,40 @@ export const useInteraction = (
 
     const lastClickTime = useRef(0);
     
+    const findConnectionAt = (worldX: number, worldY: number, connections: Connection[], boxes: Box[]): Connection | null => {
+        const CLICK_THRESHOLD = 5; // pixels
+        let closestConnection = null;
+        let minDistance = Infinity;
+
+        for (const conn of connections) {
+            const fromBox = boxes.find(b => b.id === conn.from);
+            const toBox = boxes.find(b => b.id === conn.to);
+
+            if (fromBox && toBox) {
+                const p1x = (fromBox.x + fromBox.width / 2) * GRID_CONSTANTS.gridSize;
+                const p1y = (fromBox.y + fromBox.height / 2) * GRID_CONSTANTS.gridSize;
+                const p2x = (toBox.x + toBox.width / 2) * GRID_CONSTANTS.gridSize;
+                const p2y = (toBox.y + toBox.height / 2) * GRID_CONSTANTS.gridSize;
+                
+                const l2 = Math.pow(p1x - p2x, 2) + Math.pow(p1y - p2y, 2);
+                if (l2 === 0) continue;
+
+                let t = ((worldX - p1x) * (p2x - p1x) + (worldY - p1y) * (p2y - p1y)) / l2;
+                t = Math.max(0, Math.min(1, t));
+
+                const projX = p1x + t * (p2x - p1x);
+                const projY = p1y + t * (p2y - p1y);
+                const dist = Math.sqrt(Math.pow(worldX - projX, 2) + Math.pow(worldY - projY, 2));
+                
+                if (dist < CLICK_THRESHOLD && dist < minDistance) {
+                    minDistance = dist;
+                    closestConnection = conn;
+                }
+            }
+        }
+        return closestConnection;
+    };
+
     const screenToWorld = useCallback((screenX: number, screenY: number) => {
         const worldX = (screenX - pan.x) / zoom;
         const worldY = (screenY - pan.y) / zoom;
@@ -62,16 +97,26 @@ export const useInteraction = (
         const selectedBoxes = boxes.filter(b => b.selected);
 
         if (e.button === 2) { // Right mouse button
-            if (clickedBox && !clickedBox.selected) {
-                // If there are selected boxes, connect them to the right-clicked box.
-                const fromIds = selectedBoxes.map(b => b.id).filter(id => id !== clickedBox.id);
-                if (fromIds.length > 0) {
-                    addMultipleConnections(fromIds, clickedBox.id);
+            e.preventDefault(); // Always prevent context menu first
+
+            // Priority 1: Check if a box was clicked. This is the most specific target.
+            if (clickedBox) {
+                if (!clickedBox.selected) {
+                    const fromIds = selectedBoxes.map(b => b.id).filter(id => id !== clickedBox.id);
+                    if (fromIds.length > 0) {
+                        toggleConnections(fromIds, clickedBox.id);
+                    }
                 }
+                // If the box was clicked (selected or not), we consider the action handled.
+                return;
             }
-            // Always prevent context menu on right click and stop further processing.
-            e.preventDefault();
-            return;
+
+            // Priority 2: If no box was clicked, check if a connection line was clicked.
+            const clickedConnection = findConnectionAt(worldX, worldY, connections, boxes);
+            if (clickedConnection) {
+                cycleConnectionType(clickedConnection.from, clickedConnection.to);
+                return;
+            }
         }
         
         if (e.button === 1) { // Middle mouse button for panning

@@ -41,8 +41,9 @@ function App() {
     toggleBoxSelection, 
     clearSelection,
     moveSelectedBoxes,
-    addMultipleConnections,
-    selectBoxes
+    toggleConnections,
+    selectBoxes,
+    cycleConnectionType,
   } = useCanvas();
   
   const selectedBoxes = boxes.filter(b => b.selected);
@@ -60,7 +61,7 @@ function App() {
     selectionArea,
   } = useInteraction(
     boxes,
-    () => {},
+    connections,
     findBoxAt,
     addBox,
     (box: Box, worldX: number, worldY: number) => {
@@ -89,7 +90,8 @@ function App() {
     moveBoxes,
     moveSelectedBoxes,
     addConnection,
-    addMultipleConnections,
+    toggleConnections,
+    cycleConnectionType,
     selectBoxes,
     toggleBoxSelection,
     clearSelection

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Box, CanvasState, Connection } from '../types';
+import { Box, CanvasState, Connection, ConnectionType } from '../types';
 import { invoke } from '@tauri-apps/api/core';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -85,7 +85,7 @@ export const useCanvas = () => {
 
             invoke('add_connection', { from, to }).catch(e => console.error("Backend update failed for add_connection", e));
             
-            const newConnection: Connection = { from, to };
+            const newConnection: Connection = { from, to, type: ConnectionType.Forward };
             return {
                 ...prevState,
                 connections: [...prevState.connections, newConnection]
@@ -120,41 +120,31 @@ export const useCanvas = () => {
         }
     }, []);
 
-    const addMultipleConnections = useCallback(async (fromIds: string[], toId: string) => {
-        setCanvasState(prevState => {
-            const existingConnections = new Set(
-                prevState.connections.map(c => {
-                    const pair = [c.from, c.to].sort();
-                    return `${pair[0]}-${pair[1]}`;
-                })
-            );
+    const toggleConnections = useCallback(async (fromIds: string[], toId: string) => {
+        try {
+            const updatedState = await invoke<CanvasState>('toggle_connections', { fromIds, toId });
+            setCanvasState(updatedState);
+        } catch (e) {
+            console.error("Backend update failed for toggle_connections", e);
+        }
+    }, []);
 
-            const newConnections: Connection[] = [];
-            for (const fromId of fromIds) {
-                if (fromId === toId) continue; // Prevent self-connection
-
-                const pair = [fromId, toId].sort();
-                const key = `${pair[0]}-${pair[1]}`;
-
-                if (!existingConnections.has(key)) {
-                    newConnections.push({ from: fromId, to: toId });
-                    existingConnections.add(key); // Add to set to handle duplicates within the same multi-add
-                }
+    const cycleConnectionType = useCallback(async (from: string, to: string) => {
+        try {
+            const updatedConnection = await invoke<Connection>('cycle_connection_type', { from, to });
+            if (updatedConnection) {
+                setCanvasState(prevState => ({
+                    ...prevState,
+                    connections: prevState.connections.map(c => 
+                        (c.from === from && c.to === to) || (c.from === to && c.to === from)
+                        ? updatedConnection 
+                        : c
+                    )
+                }));
             }
-
-            if (newConnections.length === 0) {
-                return prevState;
-            }
-            
-            // Get the IDs of the newly added connections to send to the backend.
-            const newFromIds = newConnections.map(c => c.from);
-            invoke('add_multiple_connections', { fromIds: newFromIds, toId }).catch(e => console.error("Backend update failed for add_multiple_connections", e));
-
-            return {
-                ...prevState,
-                connections: [...prevState.connections, ...newConnections]
-            };
-        });
+        } catch (e) {
+            console.error("Failed to cycle connection type", e);
+        }
     }, []);
 
     const selectBoxes = useCallback(async (ids: string[]) => {
@@ -165,5 +155,5 @@ export const useCanvas = () => {
         invoke('select_boxes', { ids }).catch(e => console.error("Backend update failed for select_boxes", e));
     }, []);
 
-    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection, toggleBoxSelection, clearSelection, moveSelectedBoxes, addMultipleConnections, selectBoxes };
+    return { ...canvasState, setCanvasState, findBoxAt, updateBox, addBox, deleteBox, moveBoxes, addConnection, toggleBoxSelection, clearSelection, moveSelectedBoxes, toggleConnections, cycleConnectionType, selectBoxes };
 }; 
