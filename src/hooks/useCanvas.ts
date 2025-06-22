@@ -46,7 +46,7 @@ export const useCanvas = () => {
             ...prevState,
             boxes: [...prevState.boxes, newBox]
         }));
-        invoke('add_box', { id: newBox.id, x: newBox.x, y: newBox.y, width: newBox.width, height: newBox.height, text: newBox.text, selected: newBox.selected }).catch(e => console.error("Backend update failed for add_box", e));
+        invoke('add_box', { ...newBox }).catch(e => console.error("Backend update failed for add_box", e));
     }, []);
     
     const deleteBox = useCallback(async (id: string) => {

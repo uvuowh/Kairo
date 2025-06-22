@@ -29,6 +29,7 @@ pub struct Box {
     pub height: i32,
     pub text: String,
     pub selected: bool,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -58,9 +59,9 @@ fn get_full_state(state: State<AppState>) -> CanvasState {
 }
 
 #[tauri::command]
-fn add_box(state: State<AppState>, id: String, x: i32, y: i32, width: i32, height: i32, text: String, selected: bool) {
+fn add_box(state: State<AppState>, id: String, x: i32, y: i32, width: i32, height: i32, text: String, selected: bool, color: Option<String>) {
     let mut canvas_state = state.canvas_state.lock().unwrap();
-    let new_box = Box { id, x, y, width, height, text, selected };
+    let new_box = Box { id, x, y, width, height, text, selected, color };
     canvas_state.boxes.push(new_box);
 }
 

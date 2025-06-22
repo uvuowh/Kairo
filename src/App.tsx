@@ -15,6 +15,10 @@ interface BoundingBox {
     height: number;
 }
 
+const COLORS = [ '#E57373', '#FFB74D', '#FFF176', '#81C784', '#4DD0E1', '#64B5F6', '#9575CD'];
+const SWATCH_SIZE = 28;
+const SWATCH_GAP = 8;
+
 function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -26,6 +30,8 @@ function App() {
   const targetZoom = useRef(1);
   const animationFrameId = useRef<number | null>(null);
   
+  const [currentColor, setCurrentColor] = useState(COLORS[0]);
+  const [isColorPaletteExpanded, setIsColorPaletteExpanded] = useState(false);
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
   const { 
@@ -80,7 +86,7 @@ function App() {
     },
     deleteBox,
     (gridX: number, gridY: number) => {
-        addBox({ x: gridX, y: gridY, width: 2, height: 1 });
+        addBox({ x: gridX, y: gridY, width: 2, height: 1, color: currentColor });
     },
     pan,
     setPan,
@@ -387,6 +393,15 @@ function App() {
       }
   };
 
+  const handleSelectColor = (color: string) => {
+    setCurrentColor(color);
+    setIsColorPaletteExpanded(false);
+  };
+
+  const centerIndex = Math.floor(COLORS.length / 2);
+  const currentIndex = COLORS.indexOf(currentColor);
+  const offset = (currentIndex - centerIndex) * (SWATCH_SIZE + SWATCH_GAP);
+
   return (
     <div className="app-container">
       <div className="top-bar">
@@ -396,7 +411,7 @@ function App() {
       </div>
       <h1 className="title">Kairo</h1>
       <div
-        className="canvas-container"
+        className={`canvas-container ${window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : ''}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -404,6 +419,26 @@ function App() {
         onContextMenu={handleContextMenu}
         style={{ cursor: isPanning ? 'grabbing' : 'default' }}
       >
+        <div className="color-picker-container">
+            <div
+              className="color-button"
+              style={{ backgroundColor: currentColor }}
+              onClick={() => setIsColorPaletteExpanded(!isColorPaletteExpanded)}
+              title="Change color"
+            />
+            <div className={`palette-container ${isColorPaletteExpanded ? 'expanded' : ''}`}>
+                <div className="color-palette" style={{ transform: `translateX(${-offset}px)` }}>
+                    {COLORS.map(color => (
+                        <div
+                            key={color}
+                            className="color-swatch"
+                            style={{ backgroundColor: color }}
+                            onClick={() => handleSelectColor(color)}
+                        />
+                    ))}
+                </div>
+            </div>
+        </div>
         <canvas
           ref={canvasRef}
         />

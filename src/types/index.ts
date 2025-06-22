@@ -6,6 +6,7 @@ export interface Box {
   height: number;
   text: string;
   selected?: boolean;
+  color?: string;
 }
 
 export enum ConnectionType {

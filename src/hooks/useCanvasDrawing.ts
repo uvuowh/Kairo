@@ -342,67 +342,49 @@ export const useCanvasDrawing = (
 
         // Draw all boxes
         boxes.forEach(box => {
+            const isBoxSelected = box.selected;
             const rectX = box.x * GRID_CONSTANTS.gridSize;
             const rectY = box.y * GRID_CONSTANTS.gridSize;
             const rectW = box.width * GRID_CONSTANTS.gridSize;
             const rectH = box.height * GRID_CONSTANTS.gridSize;
             const borderRadius = 4;
-
-            // Simple culling
-            if (rectX + rectW < viewLeft || rectX > viewLeft + viewWidth || rectY + rectH < viewTop || rectY > viewTop + viewHeight) {
-                // Box is outside the viewport
-            } else {
-                ctx.fillStyle = isDarkMode ? "rgba(40, 40, 40, 0.8)" : "rgba(255, 255, 255, 0.8)";
-                ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
-            ctx.lineWidth = 1;
             
+            ctx.save();
+
+            const boxBorderColor = box.color || (isDarkMode ? '#555' : '#ccc');
+
+            if (isBoxSelected) {
+                ctx.shadowColor = boxBorderColor;
+                ctx.shadowBlur = 15;
+                ctx.shadowOffsetY = 0;
+                ctx.fillStyle = isDarkMode ? "rgba(40, 40, 40, 0.9)" : "rgba(255, 255, 255, 0.9)";
+            } else {
+                ctx.shadowColor = isDarkMode ? 'rgba(0, 0, 0, 0.4)' : 'rgba(0, 0, 0, 0.15)';
+                ctx.shadowBlur = 8;
+                ctx.shadowOffsetY = 2;
+                ctx.fillStyle = 'transparent';
+            }
+            
+            ctx.strokeStyle = boxBorderColor;
+            ctx.lineWidth = isBoxSelected ? 2.5 : 1.5;
+
             roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
             ctx.fill();
-                ctx.stroke();
+            ctx.stroke();
 
-                // Draw grid inside the box
-                ctx.save();
-                ctx.clip(); // Clip to the rounded rect path defined above
+            ctx.restore();
 
-                ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)";
-                ctx.lineWidth = 1 / zoom;
+            renderTextInBox(ctx, box, isDarkMode);
 
-                // Vertical lines
-                for (let i = 1; i < box.width; i++) {
-                    const x = rectX + i * GRID_CONSTANTS.gridSize;
-                    ctx.beginPath();
-                    ctx.moveTo(x, rectY);
-                    ctx.lineTo(x, rectY + rectH);
-                    ctx.stroke();
-                }
-                // Horizontal lines
-                for (let i = 1; i < box.height; i++) {
-                    const y = rectY + i * GRID_CONSTANTS.gridSize;
-                    ctx.beginPath();
-                    ctx.moveTo(rectX, y);
-                    ctx.lineTo(rectX + rectW, y);
-                    ctx.stroke();
-                }
-                ctx.restore();
+            // Draw delete handle
+            if (isBoxSelected) {
+                const deleteHandleCenterX = rectX + rectW;
+                const deleteHandleCenterY = rectY;
 
-                renderTextInBox(ctx, box, isDarkMode);
-
-                if (box.selected) {
-                    ctx.strokeStyle = '#007AFF'; // A nice blue for selection
-                    ctx.lineWidth = 2 / zoom;
-                    roundRect(ctx, rectX - 1, rectY - 1, rectW + 2, rectH + 2, borderRadius + 1);
-                    ctx.stroke();
-                }
-
-                if (selectedBoxId === box.id) {
-                    // Draw delete handle only for a single selected box
-                    const deleteHandleCenterX = rectX + rectW;
-                    const deleteHandleCenterY = rectY;
-                    ctx.beginPath();
-                    ctx.arc(deleteHandleCenterX, deleteHandleCenterY, DELETE_HANDLE_RADIUS / zoom, 0, 2 * Math.PI);
-                    ctx.fillStyle = hoveredDeleteButton === box.id ? '#FF453A' : '#FF9500'; // Red when hovered, orange otherwise
-                    ctx.fill();
-                }
+                ctx.beginPath();
+                ctx.arc(deleteHandleCenterX, deleteHandleCenterY, DELETE_HANDLE_RADIUS, 0, 2 * Math.PI);
+                ctx.fillStyle = hoveredDeleteButton === box.id ? '#FF453A' : '#FF9500';
+                ctx.fill();
             }
         });
 
@@ -419,16 +401,27 @@ export const useCanvasDrawing = (
             ctx.setLineDash([]);
         }
 
-        if (cursor && selectedBoxId === cursor.boxId && isCursorVisible) {
-            const box = boxes.find(b => b.id === selectedBoxId);
-            if (box) {
-                const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
-                ctx.beginPath();
-                ctx.moveTo(pixelX, pixelY);
-                ctx.lineTo(pixelX, pixelY + LINE_HEIGHT);
-                ctx.strokeStyle = isDarkMode ? '#f0f0f0' : '#333';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
+        // Finally, if the cursor should be visible, draw it.
+        if (isCursorVisible && cursor && selectedBoxId === cursor.boxId && document.activeElement === canvasRef.current?.nextSibling) {
+            const selectedBox = boxes.find(b => b.id === selectedBoxId);
+            if (selectedBox) {
+                const { pixelX, pixelY } = getCursorPixelPosition(
+                    ctx,
+                    selectedBox,
+                    cursor.index
+                );
+                
+                ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
+
+                const cursorHeight = LINE_HEIGHT * 0.9;
+                const cursorYOffset = (LINE_HEIGHT - cursorHeight) / 2;
+                
+                ctx.fillRect(
+                    pixelX,
+                    pixelY + cursorYOffset,
+                    2,
+                    cursorHeight
+                );
             }
         }
 
@@ -443,100 +436,7 @@ export const useCanvasDrawing = (
         }
 
         ctx.restore();
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, selectionArea, hoveredDeleteButton, pan, zoom, connections]);
-
-    useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx || !cursor || cursor.boxId !== selectedBoxId) return;
-
-        const dpr = window.devicePixelRatio || 1;
-        const box = boxes.find(b => b.id === cursor.boxId);
-        if (!box) return;
-
-        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-        
-        const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
-        const cursorWidth = 1;
-        const cursorHeight = FONT_SIZE;
-
-        // Save the state of the context
-        ctx.save();
-        
-        // Apply the same transformations as the main draw function
-        ctx.scale(dpr * zoom, dpr * zoom);
-        ctx.translate(pan.x / zoom, pan.y / zoom);
-
-        // Define the small area to clear and redraw
-        const clearX = pixelX;
-        const clearY = pixelY;
-        const clearW = cursorWidth / zoom;
-        const clearH = cursorHeight;
-        
-        // Clear the small rectangle for the cursor
-        ctx.clearRect(clearX, clearY, clearW, clearH);
-
-        // Redraw the grid in that small area
-        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
-        ctx.lineWidth = 1 / zoom;
-
-        const gridStartX = Math.floor(clearX / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
-        const gridEndX = Math.ceil((clearX + clearW) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
-        const gridStartY = Math.floor(clearY / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
-        const gridEndY = Math.ceil((clearY + clearH) / GRID_CONSTANTS.gridSize) * GRID_CONSTANTS.gridSize;
-
-        for (let x = gridStartX; x < gridEndX; x += GRID_CONSTANTS.gridSize) {
-            if (x >= clearX && x <= clearX + clearW) {
-                ctx.beginPath();
-                ctx.moveTo(x, clearY);
-                ctx.lineTo(x, clearY + clearH);
-                ctx.stroke();
-            }
-        }
-        for (let y = gridStartY; y < gridEndY; y += GRID_CONSTANTS.gridSize) {
-             if (y >= clearY && y <= clearY + clearH) {
-                ctx.beginPath();
-                ctx.moveTo(clearX, y);
-                ctx.lineTo(clearX + clearW, y);
-                ctx.stroke();
-             }
-        }
-
-        // Redraw the part of the box that's under the cursor
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(clearX, clearY, clearW, clearH);
-        ctx.clip();
-        
-        const rectX = box.x * GRID_CONSTANTS.gridSize;
-        const rectY = box.y * GRID_CONSTANTS.gridSize;
-        const rectW = box.width * GRID_CONSTANTS.gridSize;
-        const rectH = box.height * GRID_CONSTANTS.gridSize;
-        const borderRadius = 4;
-
-        ctx.fillStyle = isDarkMode ? "rgba(40, 40, 40, 0.8)" : "rgba(255, 255, 255, 0.8)";
-        ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
-        ctx.lineWidth = 1;
-
-        roundRect(ctx, rectX, rectY, rectW, rectH, borderRadius);
-        ctx.fill();
-        ctx.stroke();
-        renderTextInBox(ctx, box, isDarkMode);
-        
-        ctx.restore();
-
-
-        // Finally, if the cursor should be visible, draw it.
-        if (isCursorVisible) {
-            ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
-            ctx.fillRect(pixelX, pixelY, cursorWidth / zoom, cursorHeight);
-        }
-
-        // Restore the context to its original state
-        ctx.restore();
-
-    }, [isCursorVisible, cursor, selectedBoxId, boxes, pan, zoom, canvasRef]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, selectionArea, hoveredDeleteButton, pan, zoom, connections, isCursorVisible]);
 
     return { draw, getCursorIndexFromClick };
 }; 
