@@ -32,6 +32,7 @@ function App() {
   
   const [currentColor, setCurrentColor] = useState(COLORS[0]);
   const [isColorPaletteExpanded, setIsColorPaletteExpanded] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
   const { 
@@ -111,7 +112,8 @@ function App() {
     cursor,
     hoveredDeleteButton,
     pan,
-    zoom
+    zoom,
+    isDarkMode
   );
 
   useEffect(() => {
@@ -136,6 +138,16 @@ function App() {
         draw();
     }
   }, [pan, zoom, boxes, connections, cursor, isPanning, draw]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    setIsDarkMode(mediaQuery.matches);
+
+    const handler = (e: MediaQueryListEvent) => setIsDarkMode(e.matches);
+    mediaQuery.addEventListener('change', handler);
+
+    return () => mediaQuery.removeEventListener('change', handler);
+  }, []);
 
   const handleComposition = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     if (e.type === 'compositionstart') {
@@ -411,7 +423,7 @@ function App() {
       </div>
       <h1 className="title">Kairo</h1>
       <div
-        className={`canvas-container ${window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : ''}`}
+        className={`canvas-container ${isDarkMode ? 'dark' : ''}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

@@ -333,7 +333,8 @@ export const useCanvasDrawing = (
     cursor: Cursor | null,
     hoveredDeleteButton: string | null,
     pan: { x: number, y: number },
-    zoom: number
+    zoom: number,
+    isDarkMode: boolean
 ) => {
     const [isCursorVisible, setIsCursorVisible] = useState(true);
 
@@ -386,26 +387,23 @@ export const useCanvasDrawing = (
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        // Handle High DPI displays
         const dpr = window.devicePixelRatio || 1;
+        canvas.width = canvas.offsetWidth * dpr;
+        canvas.height = canvas.offsetHeight * dpr;
+        ctx.scale(dpr, dpr);
 
-        if (canvas.width !== canvas.clientWidth * dpr || canvas.height !== canvas.clientHeight * dpr) {
-            canvas.width = canvas.clientWidth * dpr;
-            canvas.height = canvas.clientHeight * dpr;
-        }
-        
         ctx.save();
-        ctx.scale(dpr * zoom, dpr * zoom);
-        ctx.translate(pan.x / zoom, pan.y / zoom);
-
+        
         const viewLeft = -pan.x / zoom;
         const viewTop = -pan.y / zoom;
-        const viewWidth = canvas.clientWidth / zoom;
-        const viewHeight = canvas.clientHeight / zoom;
+        const viewWidth = canvas.width / zoom / dpr;
+        const viewHeight = canvas.height / zoom / dpr;
         
-        ctx.clearRect(viewLeft, viewTop, viewWidth, viewHeight);
+        ctx.fillStyle = isDarkMode ? '#1a1a1a' : '#f0f2f5';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        ctx.translate(pan.x, pan.y);
+        ctx.scale(zoom, zoom);
 
         // Draw grid
         ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.1)" : "rgba(0, 0, 0, 0.1)";
@@ -541,17 +539,14 @@ export const useCanvasDrawing = (
         }
 
         if (selectionArea) {
-            ctx.fillStyle = "rgba(0, 100, 255, 0.1)";
-            ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
+            ctx.fillStyle = isDarkMode ? "rgba(138, 180, 248, 0.2)" : "rgba(26, 115, 232, 0.2)";
+            ctx.strokeStyle = isDarkMode ? "rgba(138, 180, 248, 0.8)" : "rgba(26, 115, 232, 0.8)";
             ctx.lineWidth = 1 / zoom;
-            const width = selectionArea.endX - selectionArea.startX;
-            const height = selectionArea.endY - selectionArea.startY;
-            ctx.fillRect(selectionArea.startX, selectionArea.startY, width, height);
-            ctx.strokeRect(selectionArea.startX, selectionArea.startY, width, height);
+            ctx.strokeRect(selectionArea.startX, selectionArea.startY, selectionArea.endX - selectionArea.startX, selectionArea.endY - selectionArea.startY);
         }
 
         ctx.restore();
-    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, selectionArea, hoveredDeleteButton, pan, zoom, connections, isCursorVisible]);
+    }, [boxes, canvasRef, selectedBoxId, newBoxPreview, selectionArea, hoveredDeleteButton, pan, zoom, connections, isCursorVisible, isDarkMode]);
 
     return { draw, getCursorIndexFromClick };
 }; 
