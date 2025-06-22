@@ -63,12 +63,13 @@ export const useInteraction = (
 
         if (e.button === 2) { // Right mouse button
             if (clickedBox && !clickedBox.selected) {
-                if (selectedBoxes.length > 0) {
-                    const fromIds = selectedBoxes.map(b => b.id);
+                // If there are selected boxes, connect them to the right-clicked box.
+                const fromIds = selectedBoxes.map(b => b.id).filter(id => id !== clickedBox.id);
+                if (fromIds.length > 0) {
                     addMultipleConnections(fromIds, clickedBox.id);
                 }
             }
-            // Always prevent context menu on right click
+            // Always prevent context menu on right click and stop further processing.
             e.preventDefault();
             return;
         }

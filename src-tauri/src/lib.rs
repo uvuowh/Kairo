@@ -3,8 +3,7 @@ use log::{info, error, debug};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
-use tauri::{Emitter, State};
-use uuid::Uuid;
+use tauri::{Emitter, State, Wry, Builder};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct BoundingBox {
@@ -14,30 +13,30 @@ struct BoundingBox {
     height: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-struct Box {
-    id: String,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    text: String,
-    selected: bool,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Box {
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub text: String,
+    pub selected: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-struct Connection {
-    from: String,
-    to: String,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Connection {
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct CanvasState {
-    boxes: Vec<Box>,
-    connections: Vec<Connection>,
+pub struct CanvasState {
+    pub boxes: Vec<Box>,
+    pub connections: Vec<Connection>,
 }
 
-struct AppState {
+pub struct AppState {
     canvas_state: Mutex<CanvasState>,
 }
 
@@ -51,60 +50,100 @@ fn get_full_state(state: State<AppState>) -> CanvasState {
 }
 
 #[tauri::command]
-fn add_box(x: i32, y: i32, width: i32, height: i32, state: State<AppState>) -> CanvasState {
+fn add_box(state: State<AppState>, id: String, x: i32, y: i32, width: i32, height: i32, text: String, selected: bool) {
     let mut canvas_state = state.canvas_state.lock().unwrap();
-    let new_box = Box {
-        id: Uuid::new_v4().to_string(),
-        x,
-        y,
-        width,
-        height,
-        text: "".to_string(),
-        selected: false,
-    };
+    let new_box = Box { id, x, y, width, height, text, selected };
     canvas_state.boxes.push(new_box);
-    canvas_state.clone()
 }
 
 #[tauri::command]
-fn toggle_box_selection(id: String, state: State<AppState>) -> CanvasState {
-    let mut canvas_state = state.canvas_state.lock().unwrap();
-    if let Some(box_to_update) = canvas_state.boxes.iter_mut().find(|b| b.id == id) {
-        box_to_update.selected = !box_to_update.selected;
-    }
-    canvas_state.clone()
-}
-
-#[tauri::command]
-fn clear_selection(state: State<AppState>) -> CanvasState {
-    let mut canvas_state = state.canvas_state.lock().unwrap();
-    for b in canvas_state.boxes.iter_mut() {
-        b.selected = false;
-    }
-    canvas_state.clone()
-}
-
-#[tauri::command]
-fn update_box_text(id: String, text: String, width: i32, height: i32, state: State<AppState>) -> CanvasState {
+fn update_box_text(state: State<AppState>, id: String, text: String, width: i32, height: i32) {
     let mut canvas_state = state.canvas_state.lock().unwrap();
     if let Some(box_to_update) = canvas_state.boxes.iter_mut().find(|b| b.id == id) {
         box_to_update.text = text;
         box_to_update.width = width;
         box_to_update.height = height;
     }
-    canvas_state.clone()
 }
 
 #[tauri::command]
-fn delete_box(id: String, state: State<AppState>) -> CanvasState {
+fn delete_box(state: State<AppState>, id: String) {
     let mut canvas_state = state.canvas_state.lock().unwrap();
     canvas_state.boxes.retain(|b| b.id != id);
     canvas_state.connections.retain(|c| c.from != id && c.to != id);
-    canvas_state.clone()
 }
 
 #[tauri::command]
-fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> CanvasState {
+fn add_connection(state: State<AppState>, from: String, to: String) {
+    if from == to {
+        return; // Prevent self-connection
+    }
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+
+    // Prevent duplicate connections
+    let connection_exists = canvas_state.connections.iter().any(|c| 
+        (c.from == from && c.to == to) || (c.from == to && c.to == from)
+    );
+
+    if !connection_exists {
+        canvas_state.connections.push(Connection { from, to });
+    }
+}
+
+#[tauri::command]
+fn toggle_box_selection(state: State<AppState>, id: String) {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    if let Some(box_to_toggle) = canvas_state.boxes.iter_mut().find(|b| b.id == id) {
+        box_to_toggle.selected = !box_to_toggle.selected;
+    }
+}
+
+#[tauri::command]
+fn clear_selection(state: State<AppState>) {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    for b in &mut canvas_state.boxes {
+        b.selected = false;
+    }
+}
+
+#[tauri::command]
+fn select_boxes(state: State<AppState>, ids: Vec<String>) {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    let ids_set: HashSet<String> = ids.into_iter().collect();
+    for b in &mut canvas_state.boxes {
+        b.selected = ids_set.contains(&b.id);
+    }
+}
+
+#[tauri::command]
+fn add_multiple_connections(state: State<AppState>, from_ids: Vec<String>, to_id: String) {
+    let mut canvas_state = state.canvas_state.lock().unwrap();
+    let existing_connections: HashSet<(String, String)> = canvas_state.connections.iter().map(|c| {
+        let mut pair = [c.from.clone(), c.to.clone()];
+        pair.sort();
+        (pair[0].clone(), pair[1].clone())
+    }).collect();
+
+    for from_id in from_ids {
+        if from_id == to_id {
+            continue; // Prevent self-connection
+        }
+
+        let mut new_pair = [from_id.clone(), to_id.clone()];
+        new_pair.sort();
+        let new_conn_tuple = (new_pair[0].clone(), new_pair[1].clone());
+
+        if !existing_connections.contains(&new_conn_tuple) {
+            canvas_state.connections.push(Connection {
+                from: from_id,
+                to: to_id.clone(),
+            });
+        }
+    }
+}
+
+#[tauri::command]
+fn move_box(state: State<AppState>, box_id: String, new_x: i32, new_y: i32) -> CanvasState {
     let mut canvas_state = state.canvas_state.lock().unwrap();
     let original_state = canvas_state.clone();
 
@@ -175,7 +214,7 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> C
 }
 
 #[tauri::command]
-fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> CanvasState {
+fn move_selected_boxes(state: State<AppState>, delta_x: i32, delta_y: i32) -> CanvasState {
     let mut canvas_state = state.canvas_state.lock().unwrap();
     if delta_x == 0 && delta_y == 0 {
         return canvas_state.clone();
@@ -200,7 +239,7 @@ fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> Ca
             let mut moved_box = box_to_move.clone();
             moved_box.x += delta_x;
             moved_box.y += delta_y;
-            
+
             to_update.insert(id.clone(), moved_box);
             queue.push_back(id.clone());
         }
@@ -209,15 +248,15 @@ fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> Ca
     // Cascading logic
     while let Some(current_id) = queue.pop_front() {
         if let Some(moving_box) = to_update.get(&current_id).cloned() {
-            for other_box in canvas_state.boxes.iter() {
-                if to_update.contains_key(&other_box.id) {
-                    continue;
-                }
+        for other_box in canvas_state.boxes.iter() {
+            if to_update.contains_key(&other_box.id) {
+                continue;
+            }
 
-                if do_boxes_intersect(&moving_box, other_box) {
-                    let mut new_other_box = other_box.clone();
-                    new_other_box.x += delta_x;
-                    new_other_box.y += delta_y;
+            if do_boxes_intersect(&moving_box, other_box) {
+                let mut new_other_box = other_box.clone();
+                new_other_box.x += delta_x;
+                new_other_box.y += delta_y;
 
                     queue.push_back(new_other_box.id.clone());
                     to_update.insert(new_other_box.id.clone(), new_other_box);
@@ -246,73 +285,6 @@ fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> Ca
     }
 
     canvas_state.boxes = final_boxes;
-    canvas_state.clone()
-}
-
-#[tauri::command]
-fn select_boxes(ids: Vec<String>, state: State<AppState>) -> CanvasState {
-    let mut canvas_state = state.canvas_state.lock().unwrap();
-    let ids_set: HashSet<String> = ids.into_iter().collect();
-
-    for b in canvas_state.boxes.iter_mut() {
-        b.selected = ids_set.contains(&b.id);
-    }
-    
-    canvas_state.clone()
-}
-
-#[tauri::command]
-fn add_multiple_connections(from_ids: Vec<String>, to_id: String, state: State<AppState>) -> CanvasState {
-    let mut canvas_state = state.canvas_state.lock().unwrap();
-
-    let existing_connections: HashSet<(String, String)> = canvas_state.connections.iter().map(|c| {
-        let mut pair = [c.from.as_str(), c.to.as_str()];
-        pair.sort();
-        (pair[0].to_string(), pair[1].to_string())
-    }).collect();
-
-    for from_id in from_ids {
-        if from_id == to_id {
-            continue;
-        }
-
-        let mut new_pair = [from_id.as_str(), to_id.as_str()];
-        new_pair.sort();
-        let new_conn_tuple = (new_pair[0].to_string(), new_pair[1].to_string());
-
-        if !existing_connections.contains(&new_conn_tuple) {
-            canvas_state.connections.push(Connection {
-                from: from_id,
-                to: to_id.clone(),
-            });
-        }
-    }
-    
-    canvas_state.clone()
-}
-
-#[tauri::command]
-fn add_connection(from: String, to: String, state: State<AppState>) -> CanvasState {
-    let mut canvas_state = state.canvas_state.lock().unwrap();
-
-    if from == to {
-        return canvas_state.clone(); 
-    }
-
-    let existing_connections: HashSet<_> = canvas_state.connections.iter().map(|c| {
-        let mut pair = [c.from.as_str(), c.to.as_str()];
-        pair.sort();
-        (pair[0].to_string(), pair[1].to_string())
-    }).collect();
-
-    let mut new_pair = [from.as_str(), to.as_str()];
-    new_pair.sort();
-    let new_conn_tuple = (new_pair[0].to_string(), new_pair[1].to_string());
-
-    if !existing_connections.contains(&new_conn_tuple) {
-        canvas_state.connections.push(Connection { from, to });
-    }
-    
     canvas_state.clone()
 }
 
@@ -363,46 +335,61 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // 初始化日志
-    env_logger::init();
-    info!("Starting Kairo application...");
-    
+#[derive(Default)]
+pub struct AppBuilder {
+    canvas_state: CanvasState,
+}
+
+impl AppBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_canvas_state(mut self, state: CanvasState) -> Self {
+        self.canvas_state = state;
+        self
+    }
+
+    pub fn build(self) -> Builder<Wry> {
     let app_state = AppState {
-        canvas_state: Mutex::new(CanvasState::default()),
+            canvas_state: Mutex::new(self.canvas_state),
     };
     
-    tauri::Builder::default()
-        .manage(app_state)
+        Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            info!("{}, {argv:?}, {cwd}", app.package_info().name);
+                println!("{}, {argv:?}, {cwd}", app.package_info().name);
             app.emit("single-instance", argv).unwrap();
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+            .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             get_full_state,
             add_box,
+                update_box_text,
+                delete_box,
+                add_connection,
             toggle_box_selection,
             clear_selection,
-            update_box_text,
-            delete_box,
+                select_boxes,
+                add_multiple_connections,
             move_box,
             move_selected_boxes,
-            select_boxes,
-            add_multiple_connections,
-            add_connection,
             load_new_state,
             get_bounding_box,
             greet
         ])
-        .setup(|app| {
-            info!("Application setup completed");
-            debug!("App handle: {:?}", app.handle());
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    AppBuilder::new()
+        .build()
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, _event| {
+            // This closure can be used to handle events.
+        });
 }
