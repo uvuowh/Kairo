@@ -65,17 +65,15 @@ function App() {
     findBoxAt,
     addBox,
     (box: Box, worldX: number, worldY: number) => {
-        if (selectedBoxes.length !== 1) return;
         inputRef.current?.focus();
         if (selectedBoxId === box.id) {
             const newIndex = getCursorIndexFromClick(box, worldX, worldY);
             setCursor({ boxId: box.id, index: newIndex });
         } else {
-        setCursor({ boxId: box.id, index: box.text.length });
+            setCursor({ boxId: box.id, index: box.text.length });
         }
     },
     (box: Box, mouseX: number, mouseY: number) => {
-        if (selectedBoxes.length !== 1) return;
         const newIndex = getCursorIndexFromClick(box, mouseX, mouseY);
         inputRef.current?.focus();
         setCursor({ boxId: box.id, index: newIndex });
@@ -132,6 +130,27 @@ function App() {
         draw();
     }
   }, [pan, zoom, boxes, connections, cursor, isPanning, draw]);
+
+  const handleComposition = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    if (e.type === 'compositionstart') {
+        isComposing.current = true;
+    } else if (e.type === 'compositionend') {
+        isComposing.current = false;
+        handleInput(e as unknown as React.ChangeEvent<HTMLTextAreaElement>);
+    }
+  };
+
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isComposing.current) return;
+    if (!selectedBox) return;
+
+    const newText = e.currentTarget.value;
+    const { width, height } = calculateSizeForTextWithMonoFont(newText);
+    updateBox(selectedBox.id, newText, width, height);
+
+    const newCursorIndex = e.currentTarget.selectionStart;
+    setCursor({ boxId: selectedBox.id, index: newCursorIndex });
+  };
 
   const startAnimation = () => {
     if (animationFrameId.current) return;
@@ -250,29 +269,8 @@ function App() {
     }
   };
 
-  const handleTextInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isComposing.current || !selectedBoxId) return;
-    
-    const newText = e.currentTarget.value;
-    const newCursorIndex = e.currentTarget.selectionStart;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    
-    const { width, height } = calculateSizeForTextWithMonoFont(newText);
-    updateBox(selectedBoxId, newText, width, height);
-    setCursor({ boxId: selectedBoxId, index: newCursorIndex });
-  };
-
-  const handleComposition = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    if (e.type === 'compositionstart') {
-        isComposing.current = true;
-    } else if (e.type === 'compositionend') {
-        isComposing.current = false;
-        handleTextInput(e as any);
-    }
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // ... existing code ...
   };
 
   const handleResetView = async () => {
@@ -412,9 +410,10 @@ function App() {
         <textarea
           ref={inputRef}
           className="hidden-textarea"
-          onInput={handleTextInput}
-          onBlur={() => {}}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
           onCompositionStart={handleComposition}
+          onCompositionUpdate={handleComposition}
           onCompositionEnd={handleComposition}
         />
       </div>
