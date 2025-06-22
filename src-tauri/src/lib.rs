@@ -146,10 +146,6 @@ fn move_box(box_id: String, new_x: i32, new_y: i32, state: State<AppState>) -> C
                 new_other_box.x += delta_x;
                 new_other_box.y += delta_y;
 
-                if new_other_box.x < 0 || new_other_box.y < 0 {
-                    return original_state;
-                }
-
                 queue.push_back(new_other_box.id.clone());
                 to_update.insert(new_other_box.id.clone(), new_other_box);
             }
@@ -205,10 +201,6 @@ fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> Ca
             moved_box.x += delta_x;
             moved_box.y += delta_y;
             
-            if moved_box.x < 0 || moved_box.y < 0 {
-                return original_state; 
-            }
-
             to_update.insert(id.clone(), moved_box);
             queue.push_back(id.clone());
         }
@@ -216,27 +208,20 @@ fn move_selected_boxes(delta_x: i32, delta_y: i32, state: State<AppState>) -> Ca
 
     // Cascading logic
     while let Some(current_id) = queue.pop_front() {
-        let moving_box = match to_update.get(&current_id) {
-            Some(b) => b.clone(),
-            None => continue,
-        };
-
-        for other_box in canvas_state.boxes.iter() {
-            if to_update.contains_key(&other_box.id) {
-                continue;
-            }
-
-            if do_boxes_intersect(&moving_box, other_box) {
-                let mut new_other_box = other_box.clone();
-                new_other_box.x += delta_x;
-                new_other_box.y += delta_y;
-
-                if new_other_box.x < 0 || new_other_box.y < 0 {
-                    return original_state;
+        if let Some(moving_box) = to_update.get(&current_id).cloned() {
+            for other_box in canvas_state.boxes.iter() {
+                if to_update.contains_key(&other_box.id) {
+                    continue;
                 }
 
-                queue.push_back(new_other_box.id.clone());
-                to_update.insert(new_other_box.id.clone(), new_other_box);
+                if do_boxes_intersect(&moving_box, other_box) {
+                    let mut new_other_box = other_box.clone();
+                    new_other_box.x += delta_x;
+                    new_other_box.y += delta_y;
+
+                    queue.push_back(new_other_box.id.clone());
+                    to_update.insert(new_other_box.id.clone(), new_other_box);
+                }
             }
         }
     }

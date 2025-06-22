@@ -9,7 +9,6 @@ type Cursor = {
 
 const FONT_SIZE = 16;
 const FONT_FAMILY = "'Maple Mono NF CN', 'Courier New', Courier, monospace";
-const PADDING = 2;
 const LINE_HEIGHT = GRID_CONSTANTS.gridSize;
 export const DELETE_HANDLE_RADIUS = 4;
 
@@ -63,7 +62,7 @@ const getCursorPixelPosition = (
     const textOnCursorLine = lines[cursorLineIndex] || '';
     
     const pixelX = box.x * GRID_CONSTANTS.gridSize + calculateTextWidthForDrawing(textOnCursorLine);
-    const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT) + PADDING;
+    const pixelY = box.y * GRID_CONSTANTS.gridSize + (cursorLineIndex * LINE_HEIGHT);
     return { pixelX, pixelY, cursorLineIndex };
 };
 
@@ -74,7 +73,7 @@ const renderTextInBox = (
 ) => {
     ctx.fillStyle = isDarkMode ? '#f0f0f0' : '#333';
     ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'middle';
     
     const boxWidthInPixels = box.width * GRID_CONSTANTS.gridSize;
     const lines = breakTextIntoLines(ctx, box.text, boxWidthInPixels);
@@ -82,7 +81,8 @@ const renderTextInBox = (
     lines.forEach((line, lineIndex) => {
         if ((lineIndex + 1) * LINE_HEIGHT > box.height * GRID_CONSTANTS.gridSize) return;
         let drawX = box.x * GRID_CONSTANTS.gridSize;
-        const drawY = box.y * GRID_CONSTANTS.gridSize + (lineIndex * LINE_HEIGHT) + PADDING;
+        const lineTop = box.y * GRID_CONSTANTS.gridSize + (lineIndex * LINE_HEIGHT);
+        const drawY = lineTop + (LINE_HEIGHT / 2);
         
         for (const char of line) {
             ctx.fillText(char, drawX, drawY);
@@ -390,6 +390,19 @@ export const useCanvasDrawing = (
                 newBoxPreview.height * GRID_CONSTANTS.gridSize
             );
             ctx.setLineDash([]);
+        }
+
+        if (cursor && selectedBoxId === cursor.boxId && isCursorVisible) {
+            const box = boxes.find(b => b.id === selectedBoxId);
+            if (box) {
+                const { pixelX, pixelY } = getCursorPixelPosition(ctx, box, cursor.index);
+                ctx.beginPath();
+                ctx.moveTo(pixelX, pixelY);
+                ctx.lineTo(pixelX, pixelY + LINE_HEIGHT);
+                ctx.strokeStyle = isDarkMode ? '#f0f0f0' : '#333';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            }
         }
 
         if (selectionArea) {
