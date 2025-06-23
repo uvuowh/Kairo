@@ -1,0 +1,112 @@
+/* src/components/ColorSlider.css */
+.color-slider-wrapper {
+    position: absolute;
+    bottom: 2rem;
+    left: 2rem;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.6);
+    padding: 6px;
+    border-radius: 50px;
+    box-shadow: 0 6px 15px rgba(0,0,0,0.1), 0 0 0 0.5px rgba(0,0,0,0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    transition: padding 0.3s ease, gap 0.3s ease;
+    gap: 0;
+    overflow: hidden;
+}
+
+.dark .color-slider-wrapper {
+    background: rgba(30, 30, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.2), 0 0 0 0.5px rgba(0,0,0,0.1);
+}
+
+.color-swatch-display {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+    cursor: pointer;
+}
+
+.color-swatch-display:hover {
+    transform: scale(1.1);
+}
+
+.dark .color-swatch-display {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.slider-container {
+    position: relative;
+    width: 0;
+    height: 24px;
+    opacity: 0;
+    visibility: hidden;
+    transition: width 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.2s ease, visibility 0s 0.3s;
+}
+
+.color-slider-wrapper.expanded {
+    padding: 6px 10px;
+    gap: 10px;
+}
+
+.color-slider-wrapper.expanded .slider-container {
+    width: 190px;
+    opacity: 1;
+    visibility: visible;
+    transition: width 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.2s ease 0.1s, visibility 0s;
+}
+
+.discrete-slider {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+}
+
+.discrete-color-swatch {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1), box-shadow 0.2s ease;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.discrete-color-swatch.selected {
+    transform: scale(1.3);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.slider-handle {
+    position: absolute;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    transition: left 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.slider-handle::after {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--handle-color);
+    transition: background-color 0.2s ease;
+} 

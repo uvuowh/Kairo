@@ -7,6 +7,8 @@ import { useCanvasDrawing, calculateSizeForTextWithMonoFont } from "./hooks/useC
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from "@tauri-apps/api/core";
+import { useHistory } from './hooks/useHistory';
+import ColorSlider from './components/ColorSlider';
 
 interface BoundingBox {
     x: number;
@@ -31,7 +33,6 @@ function App() {
   const animationFrameId = useRef<number | null>(null);
   
   const [currentColor, setCurrentColor] = useState(COLORS[0]);
-  const [isColorPaletteExpanded, setIsColorPaletteExpanded] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
 
@@ -432,15 +433,6 @@ function App() {
       }
   };
 
-  const handleSelectColor = (color: string) => {
-    setCurrentColor(color);
-    setIsColorPaletteExpanded(false);
-  };
-
-  const centerIndex = Math.floor(COLORS.length / 2);
-  const currentIndex = COLORS.indexOf(currentColor);
-  const offset = (currentIndex - centerIndex) * (SWATCH_SIZE + SWATCH_GAP);
-
   return (
     <div className="app-container">
       <div className="top-bar">
@@ -466,26 +458,7 @@ function App() {
         onContextMenu={handleContextMenu}
         style={{ cursor: isPanning ? 'grabbing' : 'default' }}
       >
-        <div className="color-picker-container">
-            <div
-              className="color-button"
-              style={{ backgroundColor: currentColor }}
-              onClick={() => setIsColorPaletteExpanded(!isColorPaletteExpanded)}
-              title="Change color"
-            />
-            <div className={`palette-container ${isColorPaletteExpanded ? 'expanded' : ''}`}>
-                <div className="color-palette" style={{ transform: `translateX(${-offset}px)` }}>
-                    {COLORS.map(color => (
-                        <div
-                            key={color}
-                            className="color-swatch"
-                            style={{ backgroundColor: color }}
-                            onClick={() => handleSelectColor(color)}
-                        />
-                    ))}
-                </div>
-            </div>
-        </div>
+        <ColorSlider colors={COLORS} color={currentColor} onChange={setCurrentColor} />
         <canvas
           ref={canvasRef}
         />
