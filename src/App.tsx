@@ -324,19 +324,49 @@ function App() {
         cancelAnimationFrame(animationFrameId.current);
         animationFrameId.current = null;
     }
-    
-    const boundingBox = await invoke<BoundingBox | null>('get_bounding_box');
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    let boundingBox: BoundingBox | null = null;
+    const selected = boxes.filter(b => b.selected);
+
+    if (selected.length > 0) {
+        if (selected.length === 1) {
+            const box = selected[0];
+            boundingBox = {
+                x: box.x,
+                y: box.y,
+                width: box.width,
+                height: box.height,
+            };
+        } else {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            selected.forEach(box => {
+                minX = Math.min(minX, box.x);
+                minY = Math.min(minY, box.y);
+                maxX = Math.max(maxX, box.x + box.width);
+                maxY = Math.max(maxY, box.y + box.height);
+            });
+            boundingBox = {
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY,
+            };
+        }
+    } else {
+        boundingBox = await invoke<BoundingBox | null>('get_bounding_box');
+    }
+
     if (!boundingBox || boundingBox.width === 0 || boundingBox.height === 0) {
-        targetPan.current = { x: 0, y: 0 };
+        targetPan.current = { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 };
         targetZoom.current = 1;
         startAnimation();
         return;
     }
 
-    const PADDING_PIXELS = 40;
+    const PADDING_PIXELS = 80;
     const viewportWidth = canvas.clientWidth;
     const viewportHeight = canvas.clientHeight;
 
