@@ -49,8 +49,12 @@ function App() {
     clearSelection,
     moveSelectedBoxes,
     toggleConnections,
-    selectBoxes,
     cycleConnectionType,
+    selectBoxes,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
   } = useCanvas();
   
   const selectedBoxes = boxes.filter(b => b.selected);
@@ -148,6 +152,29 @@ function App() {
 
     return () => mediaQuery.removeEventListener('change', handler);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Stop handling if an input/textarea is focused
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+            return;
+        }
+
+        if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+            e.preventDefault();
+            if (e.shiftKey) {
+                redo();
+            } else {
+                undo();
+            }
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [undo, redo]);
 
   const handleComposition = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     if (e.type === 'compositionstart') {
@@ -417,9 +444,17 @@ function App() {
   return (
     <div className="app-container">
       <div className="top-bar">
-        <button onClick={handleSave}>Save</button>
-        <button onClick={handleLoad}>Load</button>
-        <button onClick={handleResetView}>Reset View</button>
+        <div className="toolbar">
+          <div className="toolbar-section">
+            <button onClick={undo} disabled={!canUndo}>Undo</button>
+            <button onClick={redo} disabled={!canRedo}>Redo</button>
+          </div>
+          <div className="toolbar-section">
+            <button onClick={handleSave}>Save</button>
+            <button onClick={handleLoad}>Load</button>
+            <button onClick={handleResetView}>Reset View</button>
+          </div>
+        </div>
       </div>
       <h1 className="title">Kairo</h1>
       <div
