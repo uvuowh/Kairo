@@ -3,7 +3,9 @@ use log::{info, error, debug};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
-use tauri::{Emitter, State, Wry, Builder};
+use tauri::{Emitter, State, Wry, Builder, Manager};
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionType {
@@ -47,6 +49,104 @@ pub struct CanvasState {
 
 pub struct AppState {
     canvas_state: Mutex<CanvasState>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct ConfigFile {
+    workspace_path: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FileNode {
+    name: String,
+    path: String,
+    is_directory: bool,
+    children: Option<Vec<FileNode>>,
+}
+
+fn get_config_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app_handle.path()
+        .app_local_data_dir()
+        .map_err(|e| e.to_string())?;
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(config_dir.join("config.json"))
+}
+
+fn read_config(app_handle: &tauri::AppHandle) -> Result<ConfigFile, String> {
+    let config_path = get_config_path(app_handle)?;
+    if !config_path.exists() {
+        return Ok(ConfigFile { workspace_path: None });
+    }
+    let content = fs::read_to_string(config_path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+fn write_config(app_handle: &tauri::AppHandle, config: &ConfigFile) -> Result<(), String> {
+    let config_path = get_config_path(app_handle)?;
+    let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    fs::write(config_path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_workspace_path(app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
+    read_config(&app_handle).map(|config| config.workspace_path)
+}
+
+#[tauri::command]
+fn set_workspace_path(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    let mut config = read_config(&app_handle).unwrap_or(ConfigFile { workspace_path: None });
+    config.workspace_path = Some(path);
+    write_config(&app_handle, &config)
+}
+
+#[tauri::command]
+fn list_directory_contents(path: String) -> Result<Vec<FileNode>, String> {
+    info!("Reading directory contents for: {}", path);
+    let mut entries = Vec::new();
+
+    if !std::path::Path::new(&path).exists() {
+        return Ok(entries);
+    }
+
+    for entry in fs::read_dir(&path).map_err(|e| format!("Failed to read directory {}: {}", path, e))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        
+        if path.is_dir() {
+            // Recursively call for subdirectories
+            let children = list_directory_contents(path.to_string_lossy().to_string())?;
+            entries.push(FileNode {
+                name,
+                path: path.to_string_lossy().to_string(),
+                is_directory: true,
+                children: Some(children),
+            });
+        } else if let Some(extension) = path.extension() {
+            if extension == "kairo" {
+                entries.push(FileNode {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    is_directory: false,
+                    children: None,
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| {
+        if a.is_directory == b.is_directory {
+            a.name.cmp(&b.name)
+        } else if a.is_directory {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+
+    Ok(entries)
 }
 
 fn do_boxes_intersect(a: &Box, b: &Box) -> bool {
@@ -385,6 +485,21 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+#[tauri::command]
+fn delete_file(path: String) -> Result<(), String> {
+    info!("Attempting to delete file: {}", path);
+    match fs::remove_file(path) {
+        Ok(_) => {
+            info!("Successfully deleted file");
+            Ok(())
+        }
+        Err(e) => {
+            error!("Failed to delete file: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct AppBuilder {
     canvas_state: CanvasState,
@@ -417,19 +532,23 @@ impl AppBuilder {
         .invoke_handler(tauri::generate_handler![
             get_full_state,
             add_box,
-                update_box_text,
-                delete_box,
-                add_connection,
+            delete_box,
+            update_box_text,
+            add_connection,
+            move_box,
             toggle_box_selection,
             clear_selection,
-                select_boxes,
-                toggle_connections,
-            cycle_connection_type,
-            move_box,
+            select_boxes,
             move_selected_boxes,
-            load_new_state,
+            toggle_connections,
+            cycle_connection_type,
             get_bounding_box,
-            greet
+            load_new_state,
+            greet,
+            delete_file,
+            get_workspace_path,
+            set_workspace_path,
+            list_directory_contents
         ])
     }
 }

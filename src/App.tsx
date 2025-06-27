@@ -9,6 +9,8 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from "@tauri-apps/api/core";
 import { useHistory } from './hooks/useHistory';
 import ColorSlider from './components/ColorSlider';
+import WorkspacePicker from './components/WorkspacePicker';
+import FileTree from './components/FileTree';
 
 interface BoundingBox {
     x: number;
@@ -35,6 +37,11 @@ function App() {
   const [currentColor, setCurrentColor] = useState(COLORS[0]);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [cursor, setCursor] = useState<{boxId: string, index: number} | null>(null);
+
+  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(true);
+  const [isFileTreeVisible, setIsFileTreeVisible] = useState(true);
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
 
   const { 
     boxes, 
@@ -154,26 +161,42 @@ function App() {
     return () => mediaQuery.removeEventListener('change', handler);
   }, []);
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle key events inside the textarea, like Enter to create a new line, etc.
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        // Potentially blur or handle submission
+    }
+  };
+
+  const handleGlobalKeyDown = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      if ((e.target as HTMLElement).classList.contains('hidden-textarea')) {
+        // Allow specific keydowns if it's our hidden textarea
+      } else {
+        return; // Ignore keydown if it's in a different input
+      }
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+    }
+    
+    if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault();
+        setIsFileTreeVisible(prev => !prev);
+    }
+  };
+
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-        // Stop handling if an input/textarea is focused
-        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-            return;
-        }
-
-        if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
-            e.preventDefault();
-            if (e.shiftKey) {
-                redo();
-            } else {
-                undo();
-            }
-        }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleGlobalKeyDown);
     return () => {
-        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, [undo, redo]);
 
@@ -315,10 +338,6 @@ function App() {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // ... existing code ...
-  };
-
   const handleResetView = async () => {
     if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
@@ -428,79 +447,121 @@ function App() {
   };
 
   const handleSave = async () => {
+    if (currentFilePath) {
+        try {
+            await writeTextFile(currentFilePath, JSON.stringify({ boxes, connections }, null, 2));
+            // Maybe add a small notification "Saved!"
+        } catch (err) {
+            console.error("Error saving file:", err);
+        }
+    } else {
+        handleSaveAs();
+    }
+  };
+
+  const handleSaveAs = async () => {
     try {
         const filePath = await save({
-            title: "Save Kairo File",
-            filters: [{ name: 'Kairo File', extensions: ['kairo'] }]
+            title: "Save Kairo File As",
+            filters: [{ name: 'Kairo File', extensions: ['kairo'] }],
+            defaultPath: workspacePath || undefined
         });
         if (filePath) {
             await writeTextFile(filePath, JSON.stringify({ boxes, connections }, null, 2));
+            setCurrentFilePath(filePath);
+            // We might need to refresh the file tree here
         }
     } catch (err) {
         console.error("Error saving file:", err);
     }
   };
 
-  const handleLoad = async () => {
+  const loadFile = async (filePath: string) => {
       try {
-          const selectedPath = await open({
-              multiple: false,
-              title: "Open Kairo File",
-              filters: [{ name: 'Kairo File', extensions: ['kairo'] }]
-          });
-          if (typeof selectedPath === 'string') {
-              const content = await readTextFile(selectedPath);
-              const loadedState: CanvasState = JSON.parse(content);
-              if (loadedState && Array.isArray(loadedState.boxes) && Array.isArray(loadedState.connections)) {
-                const syncedState = await invoke<CanvasState>('load_new_state', { newState: loadedState });
-                setCanvasState(syncedState);
-              } else {
-                console.error("Invalid file format");
-              }
+          const content = await readTextFile(filePath);
+          const loadedState: CanvasState = JSON.parse(content);
+          if (loadedState && Array.isArray(loadedState.boxes) && Array.isArray(loadedState.connections)) {
+            const syncedState = await invoke<CanvasState>('load_new_state', { newState: loadedState });
+            setCanvasState(syncedState);
+            setCurrentFilePath(filePath);
+          } else {
+            console.error("Invalid file format");
           }
       } catch (err) {
           console.error("Error loading file:", err);
       }
   };
+  
+  useEffect(() => {
+    const checkWorkspace = async () => {
+        try {
+            const path = await invoke<string | null>('get_workspace_path');
+            setWorkspacePath(path);
+        } catch (error) {
+            console.error("Failed to get workspace path:", error);
+        } finally {
+            setIsWorkspaceLoading(false);
+        }
+    };
+    checkWorkspace();
+  }, []);
+
+  if (isWorkspaceLoading) {
+    return <div>Loading...</div>; // Or a proper loading spinner
+  }
+
+  if (!workspacePath) {
+    return <WorkspacePicker onWorkspaceSet={setWorkspacePath} />;
+  }
 
   return (
-    <div className="app-container">
-      <div className="top-bar">
-        <div className="toolbar">
-          <div className="toolbar-section">
-            <button onClick={undo} disabled={!canUndo}>Undo</button>
-            <button onClick={redo} disabled={!canRedo}>Redo</button>
+    <div className={`app-container ${isFileTreeVisible ? 'sidebar-visible' : ''}`}>
+        {isFileTreeVisible && (
+            <div className="sidebar">
+                <FileTree workspacePath={workspacePath} onFileSelect={loadFile} />
+            </div>
+        )}
+      <div className="main-content">
+          <div className="top-bar">
+            <div className="toolbar">
+              <div className="toolbar-section">
+                <button onClick={() => setIsFileTreeVisible(!isFileTreeVisible)}>
+                    {isFileTreeVisible ? 'Hide' : 'Show'} Files
+                </button>
+                <button onClick={undo} disabled={!canUndo}>Undo</button>
+                <button onClick={redo} disabled={!canRedo}>Redo</button>
+              </div>
+              <div className="toolbar-section">
+                <button onClick={handleSave}>Save</button>
+                <button onClick={handleSaveAs}>Save As...</button>
+                <button onClick={handleResetView}>Reset View</button>
+              </div>
+            </div>
           </div>
-          <div className="toolbar-section">
-            <button onClick={handleSave}>Save</button>
-            <button onClick={handleLoad}>Load</button>
-            <button onClick={handleResetView}>Reset View</button>
+          <h1 className="title">Kairo</h1>
+          <div
+            className={`canvas-container ${isDarkMode ? 'dark' : ''}`}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onWheel={handleWheel}
+            onContextMenu={handleContextMenu}
+            style={{ cursor: isPanning ? 'grabbing' : 'default' }}
+          >
+            <ColorSlider colors={COLORS} color={currentColor} onChange={setCurrentColor} />
+            <canvas
+              ref={canvasRef}
+            />
+            <textarea
+              ref={inputRef}
+              className="hidden-textarea"
+              onInput={handleInput}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={handleComposition}
+              onCompositionUpdate={handleComposition}
+              onCompositionEnd={handleComposition}
+            />
           </div>
-        </div>
-      </div>
-      <h1 className="title">Kairo</h1>
-      <div
-        className={`canvas-container ${isDarkMode ? 'dark' : ''}`}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onWheel={handleWheel}
-        onContextMenu={handleContextMenu}
-        style={{ cursor: isPanning ? 'grabbing' : 'default' }}
-      >
-        <ColorSlider colors={COLORS} color={currentColor} onChange={setCurrentColor} />
-        <canvas
-          ref={canvasRef}
-        />
-        <textarea
-          ref={inputRef}
-          className="hidden-textarea"
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
-          onCompositionStart={handleComposition}
-          onCompositionUpdate={handleComposition}
-          onCompositionEnd={handleComposition}
-        />
       </div>
     </div>
   );
