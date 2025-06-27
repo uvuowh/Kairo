@@ -506,19 +506,39 @@ function App() {
     checkWorkspace();
   }, []);
 
+  const handleWorkspaceSet = (path: string) => {
+    setWorkspacePath(path);
+    setCurrentFilePath(null); 
+    setCanvasState({ boxes: [], connections: [] });
+  };
+  
+  const handleChangeWorkspace = () => {
+    setWorkspacePath(null);
+    setCurrentFilePath(null);
+    setCanvasState({ boxes: [], connections: [] });
+    // Maybe clear other states like undo/redo history if needed
+  };
+
   if (isWorkspaceLoading) {
     return <div>Loading...</div>; // Or a proper loading spinner
   }
 
   if (!workspacePath) {
-    return <WorkspacePicker onWorkspaceSet={setWorkspacePath} />;
+    return <WorkspacePicker onWorkspaceSet={handleWorkspaceSet} />;
   }
 
   return (
     <div className={`app-container ${isFileTreeVisible ? 'sidebar-visible' : ''}`}>
         {isFileTreeVisible && (
             <div className="sidebar">
-                <FileTree workspacePath={workspacePath} onFileSelect={loadFile} />
+                <div className="sidebar-toolbar">
+                  <button onClick={handleChangeWorkspace}>Change Workspace</button>
+                </div>
+                <FileTree 
+                  workspacePath={workspacePath} 
+                  onFileSelect={loadFile} 
+                  currentFilePath={currentFilePath}
+                />
             </div>
         )}
       <div className="main-content">
