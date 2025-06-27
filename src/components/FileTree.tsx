@@ -12,9 +12,10 @@ export interface FileNode {
 interface FileTreeProps {
     workspacePath: string;
     onFileSelect: (path: string) => void;
+    currentFilePath: string | null;
 }
 
-const FileTreeNode: React.FC<{ node: FileNode; onFileSelect: (path: string) => void; level?: number }> = ({ node, onFileSelect, level = 0 }) => {
+const FileTreeNode: React.FC<{ node: FileNode; onFileSelect: (path: string) => void; level?: number; currentFilePath: string | null; }> = ({ node, onFileSelect, level = 0, currentFilePath }) => {
     const [isOpen, setIsOpen] = useState(true);
 
     const handleToggle = () => {
@@ -30,10 +31,11 @@ const FileTreeNode: React.FC<{ node: FileNode; onFileSelect: (path: string) => v
     };
     
     const paddingLeft = `${level * 20}px`;
+    const isSelected = !node.is_directory && currentFilePath === node.path;
 
     return (
         <div className="file-tree-node">
-            <div className={`node-content ${node.is_directory ? 'node-directory' : 'node-file'}`} style={{ paddingLeft }} onClick={node.is_directory ? handleToggle : handleFileClick}>
+            <div className={`node-content ${node.is_directory ? 'node-directory' : 'node-file'} ${isSelected ? 'selected' : ''}`} style={{ paddingLeft }} onClick={node.is_directory ? handleToggle : handleFileClick}>
                 {node.is_directory && (
                     <span className={`arrow ${isOpen ? 'open' : ''}`}>&#9654;</span>
                 )}
@@ -42,7 +44,7 @@ const FileTreeNode: React.FC<{ node: FileNode; onFileSelect: (path: string) => v
             {node.is_directory && isOpen && node.children && (
                 <div className="node-children">
                     {node.children.map(child => (
-                        <FileTreeNode key={child.path} node={child} onFileSelect={onFileSelect} level={level + 1} />
+                        <FileTreeNode key={child.path} node={child} onFileSelect={onFileSelect} level={level + 1} currentFilePath={currentFilePath} />
                     ))}
                 </div>
             )}
@@ -51,7 +53,7 @@ const FileTreeNode: React.FC<{ node: FileNode; onFileSelect: (path: string) => v
 };
 
 
-const FileTree: React.FC<FileTreeProps> = ({ workspacePath, onFileSelect }) => {
+const FileTree: React.FC<FileTreeProps> = ({ workspacePath, onFileSelect, currentFilePath }) => {
     const [fileTree, setFileTree] = useState<FileNode[]>([]);
     const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +81,7 @@ const FileTree: React.FC<FileTreeProps> = ({ workspacePath, onFileSelect }) => {
     return (
         <div className="file-tree-container">
             {fileTree.map(node => (
-                <FileTreeNode key={node.path} node={node} onFileSelect={onFileSelect} />
+                <FileTreeNode key={node.path} node={node} onFileSelect={onFileSelect} currentFilePath={currentFilePath} />
             ))}
         </div>
     );

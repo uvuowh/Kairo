@@ -61,4 +61,9 @@
 
 .node-children {
     /* No extra padding needed here as node content itself is padded */
+}
+
+.node-content.selected {
+    background-color: rgba(0, 120, 215, 0.2);
+    font-weight: bold;
 } 

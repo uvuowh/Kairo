@@ -147,33 +147,7 @@ body, html, #root {
   text-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
 }
 
-.top-bar {
-  position: fixed;
-  top: 1rem;
-  left: 2rem;
-  z-index: 10;
-  display: flex;
-  gap: 0.5rem;
-}
-
-.top-bar button {
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: Inter, sans-serif;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  backdrop-filter: blur(5px);
-}
-
-.top-bar button:hover {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(0, 0, 0, 0.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-}
+/* .top-bar, .toolbar, and related styles will be moved to Toolbar.css */
 
 .app-container {
   display: flex;
